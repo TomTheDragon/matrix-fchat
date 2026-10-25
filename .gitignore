@@ -1,0 +1,6 @@
+/matrix-fchat
+*.yaml
+!pkg/connector/example-config.yaml
+*.db
+*.db-*
+logs/
