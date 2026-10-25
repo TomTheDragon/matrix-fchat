@@ -1,118 +1,118 @@
 # matrix-fchat
 
-Eine Matrix-Puppeting-Bridge für [F-Chat](https://wiki.f-list.net/F-Chat_Protocol), den Chat von F-List,
-gebaut auf [mautrix-go bridgev2](https://pkg.go.dev/maunium.net/go/mautrix/bridgev2).
+A Matrix puppeting bridge for [F-Chat](https://wiki.f-list.net/F-Chat_Protocol), the chat of F-List,
+built on [mautrix-go bridgev2](https://pkg.go.dev/maunium.net/go/mautrix/bridgev2).
 
-## Funktionen
+## Features
 
 | F-Chat                                          | Matrix                                                                   |
 |-------------------------------------------------|--------------------------------------------------------------------------|
-| Öffentliche Channels und private Räume (ADH-…)  | Ein Matrix-Raum pro Channel und Login                                    |
-| Private Nachrichten (PRI)                       | DM-Räume, Start mit `start-chat <Charakter>`                             |
-| BBCode (b, i, u, s, sup, sub, color, url, user, icon, eicon, spoiler, noparse, session) | HTML-Formatierung und zurück                  |
-| `/me`-Aktionen                                  | `m.emote`                                                                |
-| Rollenspiel-Anzeigen (LRP)                      | Nachricht mit `[Ad]`-Präfix; senden mit `ad <Text>`                      |
-| Würfeln / Flaschendrehen (RLL)                  | Notice; senden mit `roll 1d20` bzw. `bottle`                             |
-| Tipp-Status (TPN) in DMs                        | Typing-Notifications (beide Richtungen)                                  |
-| Channel-Beschreibung (CDS)                      | Raum-Topic (beide Richtungen, Ändern nur als Channel-Op)                 |
-| Channel-Ops / Owner (COL, COA, COR, CSO)        | Power-Level 50 / 75                                                      |
-| Kick / Ban / Timeout (CKU, CBU, CTU)            | Kick / Ban in Matrix (beide Richtungen für Kick, Ban, Unban, Invite)     |
-| Mitgliederliste (ICH, JCH, LCH, FLN)            | Raummitglieder (bis `member_sync_limit`)                                 |
-| Einladungen, Systemmeldungen, Broadcasts, Notizen | Hinweise im Management-Raum                                            |
-| Ignore-Liste                                    | Nachrichten ignorierter Charaktere werden verworfen                      |
-| Freundesliste / Lesezeichen (FRL)               | Kontaktliste; Suche über alle Online-Charaktere                          |
-| Avatare                                         | Ghost-Avatare von static.f-list.net                                      |
-| Dateien aus Matrix                              | Als Link, wenn `public_media` in der Bridge-Konfig aktiviert ist          |
+| Public channels and private rooms (ADH-…)       | One Matrix room per channel and login                                    |
+| Private messages (PRI)                          | DM rooms, started with `start-chat <character>`                          |
+| BBCode (b, i, u, s, sup, sub, color, url, user, icon, eicon, spoiler, noparse, session) | HTML formatting, in both directions           |
+| `/me` actions                                   | `m.emote`                                                                |
+| Roleplay ads (LRP)                              | Message with an `[Ad]` prefix; send with `ad <text>`                     |
+| Dice rolls / bottle spins (RLL)                 | Notice; send with `roll 1d20` or `bottle`                                |
+| Typing status (TPN) in DMs                      | Typing notifications (both directions)                                   |
+| Channel description (CDS)                       | Room topic (both directions; changing it requires channel op)            |
+| Channel ops / owner (COL, COA, COR, CSO)        | Power level 50 / 75                                                      |
+| Kick / ban / timeout (CKU, CBU, CTU)            | Kick / ban in Matrix (both directions for kick, ban, unban, invite)      |
+| Member list (ICH, JCH, LCH, FLN)                | Room members (up to `member_sync_limit`)                                 |
+| Invites, system messages, broadcasts, notes     | Notices in the management room                                           |
+| Ignore list                                     | Messages from ignored characters are dropped                             |
+| Friends / bookmarks (FRL)                       | Contact list; search covers all online characters                        |
+| Avatars                                         | Ghost avatars from static.f-list.net                                     |
+| Files from Matrix                               | Sent as a link if `public_media` is enabled in the bridge config         |
 
-Mehrere Charaktere (auch vom selben F-List-Account) können parallel eingeloggt werden –
-einfach mehrmals `login` ausführen. API-Tickets werden pro Account geteilt, weil ein neues
-Ticket alle vorherigen ungültig macht.
+Several characters (even from the same F-List account) can be logged in at the same time –
+just run `login` once per character. API tickets are shared per account, because requesting a
+new ticket invalidates all previous ones.
 
-### Nicht möglich (Protokoll-Grenzen)
+### Not possible (protocol limitations)
 
-F-Chat-Nachrichten haben keine IDs. Deshalb gibt es **keine Edits, Löschungen, Reaktionen,
-Antworten oder Threads** und keinen Verlauf (Backfill). Der Server bestätigt erfolgreiche
-Nachrichten nicht; Fehler (z. B. Flood-Control oder „Charakter nicht gefunden“) werden über ein
-kurzes Zeitfenster (`error_wait_ms`) der gesendeten Nachricht zugeordnet.
+F-Chat messages have no IDs. Because of that, there are **no edits, deletions, reactions,
+replies or threads**, and no message history (backfill). The server doesn't confirm successful
+messages; errors (such as flood control or "character not found") are matched to the sent
+message using a short time window (`error_wait_ms`).
 
-## Bauen
+## Building
 
-Benötigt Go ≥ 1.26.
+Requires Go ≥ 1.26.
 
 ```sh
 ./build.sh
 ```
 
-Das Skript baut mit `-tags goolm` (reine Go-Implementierung von Olm), daher wird `libolm` nicht benötigt.
+The script builds with `-tags goolm` (a pure Go implementation of Olm), so `libolm` isn't needed.
 
-## Einrichten
+## Setup
 
-1. Beispielkonfiguration erzeugen und anpassen:
+1. Generate the example config and adjust it:
    ```sh
    ./matrix-fchat -e
    ```
-   In `config.yaml` mindestens `homeserver.address`, `homeserver.domain`, `appservice.address`,
-   `database` und `bridge.permissions` setzen. Empfohlen:
+   In `config.yaml`, set at least `homeserver.address`, `homeserver.domain`, `appservice.address`,
+   `database` and `bridge.permissions`. Recommended:
    ```yaml
    bridge:
-       # F-Chat merkt sich Channels nicht dauerhaft – Raum verlassen = Channel verlassen
+       # F-Chat doesn't remember channels permanently – leaving the room = leaving the channel
        bridge_matrix_leave: true
    ```
-   Der F-Chat-spezifische Teil steht unter `network:` (Server-URLs, `member_sync_limit`, `bridge_ads` usw.).
-2. Registrierung erzeugen und im Homeserver eintragen
-   (siehe [mautrix-Doku](https://docs.mau.fi/bridges/general/registering-appservices.html)):
+   The F-Chat specific settings are under `network:` (server URLs, `member_sync_limit`, `bridge_ads`, etc.).
+2. Generate the registration and add it to your homeserver
+   (see the [mautrix docs](https://docs.mau.fi/bridges/general/registering-appservices.html)):
    ```sh
    ./matrix-fchat -g
    ```
-3. Bridge starten: `./matrix-fchat`
+3. Start the bridge: `./matrix-fchat`
 
-## Benutzung
+## Usage
 
-Im Chat mit dem Bridge-Bot (`@fchatbot:deine.domain`):
+In the chat with the bridge bot (`@fchatbot:your.domain`):
 
-1. `login` – F-List-**Account**name und Passwort eingeben, dann Charakter wählen.
-2. `join Frontpage` bzw. `join ADH-…` – Channel betreten; der Matrix-Raum wird automatisch erstellt.
-3. `start-chat <Charakter>` – private Unterhaltung starten.
+1. `login` – enter your F-List **account** name and password, then choose a character.
+2. `join Frontpage` or `join ADH-…` – join a channel; the Matrix room is created automatically.
+3. `start-chat <character>` – start a private conversation.
 
-Weitere Befehle (in Portal-Räumen mit Präfix `!fchat`):
+More commands (in portal rooms, use the `!fchat` prefix):
 
-| Befehl                         | Beschreibung                                                     |
+| Command                        | Description                                                      |
 |--------------------------------|------------------------------------------------------------------|
-| `join <Name/ID>`               | Channel betreten                                                 |
-| `leave [Name/ID]`              | Channel verlassen (ohne Argument: aktueller Raum)                |
-| `channels [Filter]`            | Öffentliche Channels auflisten                                   |
-| `rooms [Filter]`               | Offene private Räume auflisten                                   |
-| `create-room <Titel>`          | Neuen privaten Raum anlegen                                      |
-| `status <Status> [Nachricht]`  | Status setzen (online, looking, busy, dnd, idle, away)           |
-| `roll <Würfel>` / `bottle`     | Würfeln / Flasche drehen im aktuellen Channel                    |
-| `ad <Text>`                    | Rollenspiel-Anzeige im aktuellen Channel posten                  |
-| `invite <Charakter>`           | In den aktuellen privaten Raum einladen                          |
-| `ignore [remove] <Charakter>`  | Ignore-Liste bearbeiten                                          |
-| `reconnect`                    | Neu verbinden (z. B. nach „an anderer Stelle eingeloggt“)        |
+| `join <name/ID>`               | Join a channel                                                   |
+| `leave [name/ID]`              | Leave a channel (without an argument: the current room)          |
+| `channels [filter]`            | List public channels                                             |
+| `rooms [filter]`               | List open private rooms                                          |
+| `create-room <title>`          | Create a new private room                                        |
+| `status <status> [message]`    | Set your status (online, looking, busy, dnd, idle, away)         |
+| `roll <dice>` / `bottle`       | Roll dice / spin the bottle in the current channel               |
+| `ad <text>`                    | Post a roleplay ad in the current channel                        |
+| `invite <character>`           | Invite a character to the current private room                   |
+| `ignore [remove] <character>`  | Edit your ignore list                                            |
+| `reconnect`                    | Reconnect (e.g. after "logged in at another location")           |
 
-Außerhalb von Portal-Räumen wirken die Befehle auf den Standard-Login; in einem Portal-Raum
-auf den Charakter, dem der Raum gehört.
+Outside of portal rooms, commands apply to your default login; in a portal room, they apply to
+the character that owns the room.
 
-In Nachrichten aus Matrix kann direkt BBCode geschrieben werden (z. B. `[b]fett[/b]`), Formatierung
-aus dem Matrix-Client wird ebenfalls in BBCode umgewandelt.
+You can type BBCode directly in messages from Matrix (e.g. `[b]bold[/b]`); formatting from the
+Matrix client is converted to BBCode as well.
 
-## Sicherheit und F-List-Richtlinien
+## Security and F-List policies
 
-- Das F-List-Passwort wird **im Klartext in der Bridge-Datenbank** gespeichert, weil F-Chat für jede
-  Verbindung ein neues API-Ticket (30 Minuten gültig) braucht. Die Datenbank entsprechend schützen.
-- F-List bittet darum, Clients zuerst auf dem Testserver zu testen (Zugang per Helpdesk-Ticket) und die
-  [Developer Policy](https://wiki.f-list.net/Developer_Policy) einzuhalten. Die Server-URL lässt sich
-  über `network.server_url` ändern.
-- Die Bridge hält die Flood-Control des Servers ein (Abstand laut `msg_flood`) und verbindet sich bei
-  den Fehlercodes 2, 9, 30, 31, 33, 39 und 40 nicht automatisch neu, wie es die Protokoll-Doku verlangt.
+- The F-List password is stored **in plain text in the bridge database**, because F-Chat needs a
+  new API ticket (valid for 30 minutes) for every connection. Protect the database accordingly.
+- F-List asks developers to test clients on the test server first (access via helpdesk ticket) and
+  to follow the [Developer Policy](https://wiki.f-list.net/Developer_Policy). The server URL can be
+  changed with `network.server_url`.
+- The bridge respects the server's flood control (spacing according to `msg_flood`) and doesn't
+  reconnect automatically after error codes 2, 9, 30, 31, 33, 39 and 40, as the protocol docs require.
 
-## Aufbau
+## Layout
 
 ```
-cmd/matrix-fchat/   Einstiegspunkt (mxmain.BridgeMain)
-pkg/fchat/           F-Chat-Protokoll: WebSocket-Client, Reconnect, Ping, Flood-Control, Ticket-API
-pkg/bbcode/          BBCode → HTML/Text
-pkg/connector/       bridgev2-Connector: Login, Portale, Ghosts, Event-Umwandlung, Befehle
+cmd/matrix-fchat/    Entry point (mxmain.BridgeMain)
+pkg/fchat/           F-Chat protocol: websocket client, reconnects, pings, flood control, ticket API
+pkg/bbcode/          BBCode → HTML/text
+pkg/connector/       bridgev2 connector: login, portals, ghosts, event conversion, commands
 ```
 
-Tests: `go test -tags goolm ./...` (der Protokoll-Client wird gegen einen simulierten F-Chat-Server getestet).
+Tests: `go test -tags goolm ./...` (the protocol client is tested against a simulated F-Chat server).
