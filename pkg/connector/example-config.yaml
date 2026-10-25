@@ -1,0 +1,31 @@
+# WebSocket URL of the F-Chat server.
+server_url: wss://chat.f-list.net/chat2
+# Base URL of the F-List website. Used for API tickets and profile links.
+site_url: https://www.f-list.net
+# Base URL of the F-List static content server. Used for avatars and eicons.
+static_url: https://static.f-list.net
+
+# How long to wait (in milliseconds) for an error response after sending a message.
+# F-Chat doesn't confirm successful messages, so errors (like flood control or
+# "character not found") can only be matched to a message by timing.
+# Higher values catch more errors, but make sending slower.
+error_wait_ms: 1000
+
+# Maximum number of members for which the channel member list is synced to Matrix.
+# Large public channels (like Frontpage) can have thousands of characters, and
+# syncing all of them creates a lot of ghost users and join/leave events.
+# In channels above the limit, characters only appear once they send a message.
+# 0 means no limit, -1 disables member list syncing entirely.
+member_sync_limit: 200
+
+# Should roleplay ads (LRP) be bridged to Matrix?
+bridge_ads: true
+# Should status changes of characters you have a DM with be posted into the DM room?
+bridge_status_changes: false
+# Should F-Chat server notices (SYS, broadcasts, invites, notes) be sent to your
+# bridge management room?
+bridge_notices: true
+
+# Set your F-Chat status to "online" with this status message after connecting.
+# Leave empty to not set a status message.
+default_status_message: ""
