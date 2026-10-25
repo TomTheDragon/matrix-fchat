@@ -66,6 +66,36 @@ The script builds with `-tags goolm` (a pure Go implementation of Olm), so `libo
    ```
 3. Start the bridge: `./matrix-fchat`
 
+## Docker
+
+Build the image:
+
+```sh
+docker build -t matrix-fchat .
+```
+
+All bridge files (config, registration, SQLite database) live in the `/data` volume.
+
+1. Run the container once to generate `config.yaml`. The appservice `hostname` is set to `0.0.0.0`
+   automatically, so the homeserver can reach the bridge inside the container:
+   ```sh
+   docker run --rm -v "$(pwd)/data:/data" matrix-fchat
+   ```
+2. Edit `data/config.yaml` as described in [Setup](#setup). Use the container's address for
+   `appservice.address` (e.g. `http://matrix-fchat:29380` on a shared Docker network). For SQLite, use:
+   ```yaml
+   database:
+       type: sqlite3-fk-wal
+       uri: file:/data/matrix-fchat.db?_txlock=immediate
+   ```
+3. Run it again to generate `data/registration.yaml`, then add that to your homeserver.
+4. Start the bridge:
+   ```sh
+   docker run -d --name matrix-fchat --restart unless-stopped -v "$(pwd)/data:/data" matrix-fchat
+   ```
+
+The bridge runs as UID/GID 1337 by default; change this with the `UID` and `GID` environment variables.
+
 ## Usage
 
 In the chat with the bridge bot (`@fchatbot:your.domain`):
@@ -110,6 +140,7 @@ Matrix client is converted to BBCode as well.
 
 ```
 cmd/matrix-fchat/    Entry point (mxmain.BridgeMain)
+Dockerfile           Multi-stage image build; docker-run.sh is its entry point
 pkg/fchat/           F-Chat protocol: websocket client, reconnects, pings, flood control, ticket API
 pkg/bbcode/          BBCode → HTML/text
 pkg/connector/       bridgev2 connector: login, portals, ghosts, event conversion, commands

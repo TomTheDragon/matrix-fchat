@@ -1,0 +1,9 @@
+# Keep .git in the build context so build.sh can embed the commit and tag.
+/matrix-fchat
+*.yaml
+!pkg/connector/example-config.yaml
+*.db
+*.db-*
+logs/
+Dockerfile
+.dockerignore
