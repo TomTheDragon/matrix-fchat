@@ -18,6 +18,10 @@ type UserLoginMetadata struct {
 	// remember joined channels between sessions, so the bridge rejoins these after connecting.
 	Channels map[string]string `json:"channels,omitempty"`
 
+	// FriendDMs are the friends (user IDs) that already got a DM room. Rooms are only
+	// created once per friend, so a room the user left isn't created again.
+	FriendDMs map[string]bool `json:"friend_dms,omitempty"`
+
 	// SpaceAvatar is the avatar the bridge last set on the login's space room.
 	SpaceAvatar id.ContentURIString `json:"space_avatar,omitempty"`
 }

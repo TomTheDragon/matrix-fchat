@@ -744,6 +744,9 @@ func (c *FChatClient) handleRealtimeBridge(rtb *fchat.RealtimeBridge) {
 		text = fmt.Sprintf("New friend request from **%s**", rtb.Name)
 	case "friendadd":
 		c.updateContactList(c.friends, rtb.Name, true)
+		if c.Main.Config.CreateFriendDMs {
+			go c.createFriendDM(c.ctx(), rtb.Name)
+		}
 		text = fmt.Sprintf("**%s** is now your friend", rtb.Name)
 	case "friendremove":
 		c.updateContactList(c.friends, rtb.Name, false)

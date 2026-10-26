@@ -20,6 +20,12 @@ member_sync_limit: 200
 
 # Should roleplay ads (LRP) be bridged to Matrix?
 bridge_ads: true
+
+# Should a DM room be created for every friend of the character? Rooms are created
+# after connecting and when a new friendship is confirmed, once per friend: if you
+# leave a friend's DM room, it isn't created again until you start a chat yourself.
+create_friend_dms: true
+
 # Should status changes of characters you have a DM with be posted into the DM room?
 bridge_status_changes: false
 # Should F-Chat server notices (SYS, broadcasts, invites, notes) be sent to your

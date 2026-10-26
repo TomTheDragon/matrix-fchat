@@ -20,7 +20,8 @@ built on [mautrix-go bridgev2](https://pkg.go.dev/maunium.net/go/mautrix/bridgev
 | Member list (ICH, JCH, LCH, FLN)                | Room members (up to `member_sync_limit`)                                 |
 | Invites, system messages, broadcasts, notes     | Notices in the management room                                           |
 | Ignore list                                     | Messages from ignored characters are dropped                             |
-| Friends / bookmarks                             | Contact list; `friends` and `bookmarks` list them with avatars and status |
+| Friends                                         | A DM room per friend (`create_friend_dms`), contact list, `friends` command |
+| Bookmarks                                       | Contact list; `bookmarks` lists them with avatars and online status      |
 | Avatars                                         | Ghost avatars from static.f-list.net                                     |
 | Files from Matrix                               | Sent as a link if `public_media` is enabled in the bridge config         |
 

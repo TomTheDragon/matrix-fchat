@@ -10,8 +10,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
+	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/commands"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+	"maunium.net/go/mautrix/bridgev2/simplevent"
 	"maunium.net/go/mautrix/event"
 
 	"matrix-fchat/pkg/bbcode"
@@ -83,7 +86,73 @@ func (c *FChatClient) syncContactLists(ctx context.Context) {
 	// F-List asks clients not to poll the list endpoint, so frequent reconnects reuse the lists.
 	if err := c.refreshContactLists(ctx, 10*time.Minute); err != nil {
 		c.log.Err(err).Msg("Failed to sync friend and bookmark lists")
+		return
 	}
+	if c.Main.Config.CreateFriendDMs {
+		c.stateLock.RLock()
+		friends := make([]string, 0, len(c.friends))
+		for _, name := range c.friends {
+			friends = append(friends, name)
+		}
+		c.stateLock.RUnlock()
+		slices.SortFunc(friends, func(a, b string) int {
+			return cmp.Compare(strings.ToLower(a), strings.ToLower(b))
+		})
+		for _, name := range friends {
+			if c.createFriendDM(ctx, name) {
+				// Don't create lots of rooms at the same moment.
+				time.Sleep(500 * time.Millisecond)
+			}
+		}
+	}
+}
+
+// createFriendDM creates the DM room of a friend unless the bridge already did that before.
+// It returns whether a room creation was queued.
+func (c *FChatClient) createFriendDM(ctx context.Context, name string) bool {
+	userID := makeUserID(name)
+	if userID == "" || userID == c.ownID {
+		return false
+	}
+	c.metaLock.Lock()
+	done := c.meta().FriendDMs[string(userID)]
+	c.metaLock.Unlock()
+	if done {
+		return false
+	}
+	portalKey := makeDMPortalKey(name, c.UserLogin.ID)
+	portal, err := c.Main.Bridge.GetExistingPortalByKey(ctx, portalKey)
+	if err != nil {
+		c.log.Err(err).Str("friend", name).Msg("Failed to check for existing DM portal")
+		return false
+	}
+	queued := false
+	if portal == nil || portal.MXID == "" {
+		c.log.Debug().Str("friend", name).Msg("Creating DM room for friend")
+		c.Main.Bridge.QueueRemoteEvent(c.UserLogin, &simplevent.ChatResync{
+			EventMeta: simplevent.EventMeta{
+				Type:         bridgev2.RemoteEventChatResync,
+				PortalKey:    portalKey,
+				CreatePortal: true,
+				LogContext: func(lc zerolog.Context) zerolog.Context {
+					return lc.Str("friend", name)
+				},
+			},
+			ChatInfo: c.dmChatInfo(userID),
+		})
+		queued = true
+	}
+	c.metaLock.Lock()
+	defer c.metaLock.Unlock()
+	meta := c.meta()
+	if meta.FriendDMs == nil {
+		meta.FriendDMs = make(map[string]bool)
+	}
+	meta.FriendDMs[string(userID)] = true
+	if err = c.UserLogin.Save(ctx); err != nil {
+		c.log.Err(err).Msg("Failed to save login after creating friend DM")
+	}
+	return queued
 }
 
 // updateContactList adds or removes a character after a realtime notification from the server.

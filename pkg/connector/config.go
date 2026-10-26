@@ -22,6 +22,8 @@ type Config struct {
 	MemberSyncLimit int  `yaml:"member_sync_limit"`
 	BridgeAds       bool `yaml:"bridge_ads"`
 
+	CreateFriendDMs bool `yaml:"create_friend_dms"`
+
 	BridgeStatusChanges bool `yaml:"bridge_status_changes"`
 	BridgeNotices       bool `yaml:"bridge_notices"`
 
@@ -54,6 +56,7 @@ func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.Int, "error_wait_ms")
 	helper.Copy(up.Int, "member_sync_limit")
 	helper.Copy(up.Bool, "bridge_ads")
+	helper.Copy(up.Bool, "create_friend_dms")
 	helper.Copy(up.Bool, "bridge_status_changes")
 	helper.Copy(up.Bool, "bridge_notices")
 	helper.Copy(up.Str, "default_status_message")
@@ -66,6 +69,8 @@ func (fc *FChatConnector) GetConfig() (string, any, up.Upgrader) {
 			{"error_wait_ms"},
 			{"member_sync_limit"},
 			{"bridge_ads"},
+			{"create_friend_dms"},
+			{"bridge_status_changes"},
 			{"default_status_message"},
 		},
 		Base: ExampleConfig,
