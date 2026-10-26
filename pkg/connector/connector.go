@@ -9,12 +9,16 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/commands"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+	"maunium.net/go/mautrix/id"
 
 	"matrix-fchat/pkg/fchat"
 )
 
 // ClientName is sent to the F-Chat server in the IDN command.
 const ClientName = "matrix-fchat bridge"
+
+// NetworkIcon is the default avatar of the bridge bot, the per-login spaces and the management room.
+const NetworkIcon id.ContentURIString = "mxc://foxyden.eu/AJenOiLFKYmxwrQgmGbrvbpP"
 
 type FChatConnector struct {
 	Bridge *bridgev2.Bridge
@@ -64,6 +68,7 @@ func (fc *FChatConnector) GetName() bridgev2.BridgeName {
 	return bridgev2.BridgeName{
 		DisplayName:          "F-Chat",
 		NetworkURL:           "https://www.f-list.net",
+		NetworkIcon:          NetworkIcon,
 		NetworkID:            "fchat",
 		BeeperBridgeType:     "matrix-fchat",
 		DefaultPort:          29380,

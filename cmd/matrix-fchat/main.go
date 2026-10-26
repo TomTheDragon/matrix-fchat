@@ -23,6 +23,14 @@ func main() {
 		Version:     "0.1.0",
 		Connector:   fc,
 	}
+	m.PostInit = func() {
+		// Use the F-Chat icon as the bot avatar when the config doesn't set one
+		// (e.g. configs generated before the icon was added).
+		bot := &m.Config.AppService.Bot
+		if bot.Avatar == "" {
+			bot.ParsedAvatar = connector.NetworkIcon.ParseOrIgnore()
+		}
+	}
 	m.InitVersion(Tag, Commit, BuildTime)
 	fc.Version = m.Version
 	m.Run()

@@ -2,6 +2,7 @@ package connector
 
 import (
 	"maunium.net/go/mautrix/bridgev2/database"
+	"maunium.net/go/mautrix/id"
 )
 
 // UserLoginMetadata is stored in the user_login table.
@@ -16,6 +17,9 @@ type UserLoginMetadata struct {
 	// Channels the character is in, mapped to their titles. F-Chat doesn't
 	// remember joined channels between sessions, so the bridge rejoins these after connecting.
 	Channels map[string]string `json:"channels,omitempty"`
+
+	// SpaceAvatar is the avatar the bridge last set on the login's space room.
+	SpaceAvatar id.ContentURIString `json:"space_avatar,omitempty"`
 }
 
 type GhostMetadata struct {

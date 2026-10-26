@@ -211,7 +211,34 @@ func (c *FChatClient) onConnected() {
 			c.log.Warn().Err(err).Msg("Failed to set default status")
 		}
 	}
+	c.updateSpaceAvatar(ctx)
 	c.rejoinChannels(ctx)
+}
+
+// updateSpaceAvatar sets the network icon on spaces that were created before it existed.
+// New spaces get the icon when they're created.
+func (c *FChatClient) updateSpaceAvatar(ctx context.Context) {
+	spaceRoom := c.UserLogin.SpaceRoom
+	if spaceRoom == "" {
+		return
+	}
+	c.metaLock.Lock()
+	defer c.metaLock.Unlock()
+	meta := c.meta()
+	if meta.SpaceAvatar == NetworkIcon {
+		return
+	}
+	_, err := c.Main.Bridge.Bot.SendState(ctx, spaceRoom, event.StateRoomAvatar, "", &event.Content{
+		Parsed: &event.RoomAvatarEventContent{URL: NetworkIcon},
+	}, time.Time{})
+	if err != nil {
+		c.log.Warn().Err(err).Msg("Failed to set space avatar")
+		return
+	}
+	meta.SpaceAvatar = NetworkIcon
+	if err = c.UserLogin.Save(ctx); err != nil {
+		c.log.Err(err).Msg("Failed to save login after setting space avatar")
+	}
 }
 
 func (c *FChatClient) rejoinChannels(ctx context.Context) {
