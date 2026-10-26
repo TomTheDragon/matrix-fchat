@@ -333,26 +333,28 @@ func (fc *FChatConnector) renderContactList(title string, entries []*contactEntr
 			fmt.Fprintf(&htmlOut, `<img src="%s" alt="" title="%s" width="%d" height="%d"> `,
 				html.EscapeString(entry.AvatarMXC), html.EscapeString(entry.Name), avatarSize, avatarSize)
 		}
-		fmt.Fprintf(&htmlOut, `%s <a href="%s" title="F-List profile">🔗</a> – %s</li>`+"\n",
+		fmt.Fprintf(&htmlOut, `%s<code><a href="%s" title="F-List profile">🏠</a></code> – %s</li>`+"\n",
 			renderName(entry.Name, entry.Gender, entry.ChatLink), html.EscapeString(profile), html.EscapeString(status))
 	}
 	htmlOut.WriteString("</ul>\n")
 	startChat := fc.Bridge.Config.CommandPrefix + " start-chat <name>"
 	plain.WriteString("\nStart a private chat with `" + startChat + "`")
-	fmt.Fprintf(&htmlOut, "<p>Click a name to open the private chat, 🔗 opens the F-List profile. "+
+	fmt.Fprintf(&htmlOut, "<p>Click a name to open the private chat, 🏠 opens the F-List profile. "+
 		"You can also use <code>%s</code>.", html.EscapeString(startChat))
 	if total > len(entries) {
 		plain.WriteString("\nShow more with `" + usage + "`")
 		fmt.Fprintf(&htmlOut, "<br>Show more with <code>%s</code>.", html.EscapeString(usage))
 	}
 	htmlOut.WriteString("</p>")
-	return &event.MessageEventContent{
+	content := &event.MessageEventContent{
 		MsgType:       event.MsgNotice,
 		Body:          plain.String(),
 		Format:        event.FormatHTML,
 		FormattedBody: htmlOut.String(),
 		Mentions:      &event.Mentions{},
 	}
+	disableLinkPreviews(content)
+	return content
 }
 
 const (

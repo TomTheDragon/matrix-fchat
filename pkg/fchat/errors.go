@@ -58,6 +58,7 @@ const (
 	ErrCodeBanned             = 9
 	ErrCodeAlreadyIdentified  = 11
 	ErrCodeMessageTooLong     = 15
+	ErrCodeNoSearchResults    = 18
 	ErrCodeIgnored            = 20
 	ErrCodeChannelNotFound    = 26
 	ErrCodeAlreadyInChannel   = 28
@@ -70,9 +71,11 @@ const (
 	ErrCodeNotInChannel       = 45
 	ErrCodeBannedFromChannel  = 48
 	ErrCodeAdFlood            = 56
+	ErrCodeSearchThrottled    = 50
 	ErrCodeNoAdsAllowed       = 59
 	ErrCodeNoChatAllowed      = 60
 	ErrCodeNoLoginSlots       = 62
+	ErrCodeTooManyResults     = 72
 	ErrCodeLoginTimedOut      = -4
 )
 

@@ -22,9 +22,12 @@ type Options struct {
 	// UserMention can optionally return a Matrix user ID to render a [user] tag
 	// as a Matrix pill (used to mention the Matrix user). If it returns "", UserLink is used.
 	UserMention func(name string) string
-	// UserLink can optionally return the link target and text color of a character name.
-	// If the link is "", ProfileURL is used.
+	// UserLink can optionally return the link that opens a chat with a character and the
+	// color of its name. [user] and [icon] tags get this link plus a 🏠 link to the profile.
 	UserLink func(name string) (href, color string)
+	// NoPreview can return true for links that clients shouldn't show previews for.
+	// Those links are wrapped in <code>, which Element doesn't generate previews for.
+	NoPreview func(href string) bool
 
 	// The image functions return the mxc:// URI of an image to show inline.
 	// If they're nil or return "", a text fallback is used.
@@ -62,6 +65,10 @@ const (
 type Result struct {
 	HTML  string
 	Plain string
+	// PreviewLinks are the http(s) links that clients may show previews for.
+	PreviewLinks []string
+	// HiddenPreviews is the number of links that shouldn't get a preview (see Options.NoPreview).
+	HiddenPreviews int
 	// HasFormatting is true if the HTML output differs meaningfully from the plain text.
 	HasFormatting bool
 }
@@ -245,6 +252,8 @@ func isSafeURL(u string) bool {
 
 type renderer struct {
 	opts          Options
+	previewLinks  []string
+	hiddenPreview int
 	html          strings.Builder
 	plain         strings.Builder
 	hasFormatting bool
@@ -327,17 +336,41 @@ func (r *renderer) children(n *node) {
 	}
 }
 
-// userHref returns the link target and color for a character name.
-func (r *renderer) userHref(name string) (href, color string) {
-	if r.opts.UserLink != nil {
-		href, color = r.opts.UserLink(name)
+// link writes an opening <a> tag (and <code> for links without previews).
+// The returned function writes the closing tags.
+func (r *renderer) link(href string) (closeLink func()) {
+	if r.opts.NoPreview != nil && r.opts.NoPreview(href) {
+		r.hiddenPreview++
+		fmt.Fprintf(&r.html, `<code><a href="%s">`, html.EscapeString(href))
+		return func() { r.html.WriteString("</a></code>") }
 	}
-	if href == "" && r.opts.ProfileURL != nil {
-		href = r.opts.ProfileURL(name)
+	if isSafeURL(href) && !strings.HasPrefix(href, "https://matrix.to/") {
+		r.previewLinks = append(r.previewLinks, href)
 	}
-	return
+	fmt.Fprintf(&r.html, `<a href="%s">`, html.EscapeString(href))
+	return func() { r.html.WriteString("</a>") }
 }
 
+// coloredName returns the escaped name, in a <font> tag if it has a color.
+func coloredName(name, color string) string {
+	label := html.EscapeString(name)
+	if color != "" {
+		label = fmt.Sprintf(`<font color="%s" data-mx-color="%s">%s</font>`, html.EscapeString(color), html.EscapeString(color), label)
+	}
+	return label
+}
+
+// profileLink writes the 🏠 link to a character's profile.
+func (r *renderer) profileLink(name string) {
+	if r.opts.ProfileURL == nil {
+		return
+	}
+	closeLink := r.link(r.opts.ProfileURL(name))
+	r.html.WriteString("🏠")
+	closeLink()
+}
+
+// userLink renders a [user] tag: the name linked to the chat with the character, then a 🏠 link to the profile.
 func (r *renderer) userLink(name string) {
 	name = strings.TrimSpace(name)
 	r.hasFormatting = true
@@ -345,32 +378,45 @@ func (r *renderer) userLink(name string) {
 	if r.opts.UserMention != nil {
 		if mxid := r.opts.UserMention(name); mxid != "" {
 			fmt.Fprintf(&r.html, `<a href="https://matrix.to/#/%s">%s</a>`, html.EscapeString(mxid), html.EscapeString(name))
+			r.profileLink(name)
 			return
 		}
 	}
-	href, color := r.userHref(name)
-	label := html.EscapeString(name)
-	if color != "" {
-		label = fmt.Sprintf(`<font color="%s" data-mx-color="%s">%s</font>`, html.EscapeString(color), html.EscapeString(color), label)
+	var href, color string
+	if r.opts.UserLink != nil {
+		href, color = r.opts.UserLink(name)
 	}
 	if href != "" {
-		fmt.Fprintf(&r.html, `<a href="%s">%s</a>`, html.EscapeString(href), label)
+		closeLink := r.link(href)
+		r.html.WriteString(coloredName(name, color))
+		closeLink()
 	} else {
-		r.html.WriteString(label)
+		r.html.WriteString(coloredName(name, color))
 	}
+	r.profileLink(name)
 }
 
-// image writes an inline image, optionally wrapped in a link.
-func (r *renderer) image(mxc, alt, href string, size int) {
+// icon renders an [icon] tag: the avatar, then a 💬 link to the chat and a 🏠 link to the profile.
+func (r *renderer) icon(name, mxc string) {
 	r.hasFormatting = true
-	if href != "" {
-		fmt.Fprintf(&r.html, `<a href="%s">`, html.EscapeString(href))
+	r.plain.WriteString(name)
+	fmt.Fprintf(&r.html, `<img src="%s" alt="%s" title="%s" width="%d" height="%d">`,
+		html.EscapeString(mxc), html.EscapeString(name), html.EscapeString(name), iconSize, iconSize)
+	if r.opts.UserLink != nil {
+		if href, _ := r.opts.UserLink(name); href != "" {
+			closeLink := r.link(href)
+			r.html.WriteString("💬")
+			closeLink()
+		}
 	}
+	r.profileLink(name)
+}
+
+// image writes an inline image.
+func (r *renderer) image(mxc, alt string, size int) {
+	r.hasFormatting = true
 	fmt.Fprintf(&r.html, `<img src="%s" alt="%s" title="%s" width="%d" height="%d">`,
 		html.EscapeString(mxc), html.EscapeString(alt), html.EscapeString(alt), size, size)
-	if href != "" {
-		r.html.WriteString("</a>")
-	}
 }
 
 func (r *renderer) render(n *node) {
@@ -440,7 +486,7 @@ func (r *renderer) render(n *node) {
 			return
 		}
 		r.hasFormatting = true
-		fmt.Fprintf(&r.html, `<a href="%s">`, html.EscapeString(target))
+		closeLink := r.link(target)
 		if n.arg != "" {
 			// Render the label without touching the plain output, so we can add the URL after it.
 			sub := &renderer{opts: r.opts}
@@ -451,7 +497,7 @@ func (r *renderer) render(n *node) {
 			r.html.WriteString(html.EscapeString(target))
 			label = target
 		}
-		r.html.WriteString("</a>")
+		closeLink()
 		if label == "" || label == target {
 			r.plain.WriteString(target)
 		} else {
@@ -463,9 +509,7 @@ func (r *renderer) render(n *node) {
 		name := strings.TrimSpace(nodeText(n))
 		if r.opts.AvatarImage != nil {
 			if mxc := r.opts.AvatarImage(name); mxc != "" {
-				href, _ := r.userHref(name)
-				r.image(mxc, name, href, iconSize)
-				r.plain.WriteString(name)
+				r.icon(name, mxc)
 				return
 			}
 		}
@@ -475,13 +519,15 @@ func (r *renderer) render(n *node) {
 		r.hasFormatting = true
 		if r.opts.EIconImage != nil {
 			if mxc := r.opts.EIconImage(name); mxc != "" {
-				r.image(mxc, name, "", iconSize)
+				r.image(mxc, name, iconSize)
 				r.plain.WriteString(":" + name + ":")
 				return
 			}
 		}
 		if r.opts.EIconURL != nil {
-			fmt.Fprintf(&r.html, `<a href="%s">:%s:</a>`, html.EscapeString(r.opts.EIconURL(name)), html.EscapeString(name))
+			closeLink := r.link(r.opts.EIconURL(name))
+			r.html.WriteString(html.EscapeString(":" + name + ":"))
+			closeLink()
 		} else {
 			r.html.WriteString(html.EscapeString(":" + name + ":"))
 		}
@@ -517,6 +563,9 @@ func ToHTML(input string, opts Options) Result {
 		HTML:          r.html.String(),
 		Plain:         r.plain.String(),
 		HasFormatting: r.hasFormatting,
+
+		PreviewLinks:   r.previewLinks,
+		HiddenPreviews: r.hiddenPreview,
 	}
 }
 

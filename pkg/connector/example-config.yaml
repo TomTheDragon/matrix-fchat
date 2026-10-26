@@ -18,7 +18,8 @@ error_wait_ms: 1000
 # 0 means no limit, -1 disables member list syncing entirely.
 member_sync_limit: 200
 
-# Should roleplay ads (LRP) be bridged to Matrix?
+# Should roleplay ads (LRP) be bridged to Matrix? This is the default; users can change it
+# per character and per room with the `ads` command.
 bridge_ads: true
 
 # Should a DM room be created for every friend of the character? Rooms are created

@@ -136,6 +136,29 @@ func (fc *FChatConnector) commandHandlers() []commands.CommandHandler {
 			RequiresPortal: true,
 		},
 		&commands.FullHandler{
+			Func:    fc.cmdFindPartners,
+			Name:    "find-partners",
+			Aliases: []string{"search", "find"},
+			Help: commands.HelpMeta{
+				Section: HelpSectionFChat,
+				Description: "Find online characters by kinks, gender, orientation, language, furry preference, role and position. " +
+					"Without arguments, shows how to use it.",
+				Args: "kinks: <_kinks_>[; genders: <_genders_>; …; limit: <_number_>]",
+			},
+			RequiresLogin: true,
+		},
+		&commands.FullHandler{
+			Func: fc.cmdAds,
+			Name: "ads",
+			Help: commands.HelpMeta{
+				Section: HelpSectionFChat,
+				Description: "Show or hide roleplay ads, for the current room or for the whole character. " +
+					"Without arguments, shows the current settings.",
+				Args: "[room|character] [on|off|default]",
+			},
+			RequiresLogin: true,
+		},
+		&commands.FullHandler{
 			Func: fc.cmdInvite,
 			Name: "invite",
 			Help: commands.HelpMeta{
@@ -311,6 +334,7 @@ func (fc *FChatConnector) sendChannelList(ce *commands.Event, client *FChatClien
 		FormattedBody: htmlOut.String(),
 		Mentions:      &event.Mentions{},
 	}
+	disableLinkPreviews(content)
 	_, err := ce.Bot.SendMessage(ce.Ctx, ce.OrigRoomID, event.EventMessage, &event.Content{Parsed: content}, nil)
 	if err != nil {
 		ce.Log.Err(err).Msg("Failed to send channel list")
@@ -479,8 +503,8 @@ func (fc *FChatConnector) cmdAd(ce *commands.Event) {
 		return
 	}
 	// The server doesn't echo ads back to the sender, so bridge it ourselves.
-	if fc.Config.BridgeAds {
-		client.queueMessage(ce.Portal.PortalKey, client.meta().Character, client.textMessage(text, event.MsgText, "[Ad] "), false)
+	if client.showAds(ce.Ctx, channel) {
+		client.queueMessage(ce.Portal.PortalKey, client.meta().Character, client.adMessage(text), false)
 	} else {
 		ce.React("✅")
 	}

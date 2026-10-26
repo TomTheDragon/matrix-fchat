@@ -31,7 +31,8 @@ type FChatConnector struct {
 	Tickets *fchat.TicketCache
 	HTTP    *http.Client
 
-	images imageCache
+	images        imageCache
+	searchOptions searchOptionsCache
 }
 
 var (

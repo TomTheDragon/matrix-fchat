@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
+	"net/url"
 	"strings"
 	"time"
 
@@ -38,7 +40,7 @@ func (c *FChatClient) handleCommand(cmd fchat.RawCommand) {
 			c.handleChannelMessage(msg, false)
 		}
 	case fchat.CmdAd:
-		if msg, ok := parsePayload[fchat.ChannelMessage](c, cmd); ok && c.Main.Config.BridgeAds {
+		if msg, ok := parsePayload[fchat.ChannelMessage](c, cmd); ok && c.showAds(c.ctx(), msg.Channel) {
 			c.handleChannelMessage(msg, true)
 		}
 	case fchat.CmdPrivate:
@@ -190,11 +192,44 @@ func (c *FChatClient) bbcodeOptions(ctx context.Context) bbcode.Options {
 	}
 }
 
+// disableLinkPreviews sets an empty MSC4095 preview list ("com.beeper.linkpreviews": []),
+// which tells clients that support it not to generate link previews.
+func disableLinkPreviews(content *event.MessageEventContent) {
+	content.BeeperLinkPreviews = []*event.BeeperLinkPreview{}
+}
+
+// isFListURL returns whether a link points to F-List (the main site or static files).
+func (c *FChatClient) isFListURL(href string) bool {
+	u, err := url.Parse(href)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "f-list.net" || strings.HasSuffix(host, ".f-list.net") {
+		return true
+	}
+	for _, configured := range []string{c.Main.Config.SiteURL, c.Main.Config.StaticURL} {
+		if cu, err := url.Parse(configured); err == nil && cu.Host != "" && strings.EqualFold(cu.Hostname(), host) {
+			return true
+		}
+	}
+	return false
+}
+
+// textKind says how a message text is shown in Matrix.
+type textKind int
+
+const (
+	textNormal textKind = iota
+	// textAd is a roleplay ad: it's shown as a quote and never gets link previews.
+	textAd
+)
+
 // convertText converts an F-Chat message text into Matrix message content.
 // It may upload images, so it should run in the portal's event handling, not in the connection loop.
-func (c *FChatClient) convertText(ctx context.Context, text string, msgType event.MessageType, prefix string) *event.MessageEventContent {
+func (c *FChatClient) convertText(ctx context.Context, text string, msgType event.MessageType, prefix string, kind textKind) *bridgev2.ConvertedMessagePart {
 	text = bbcode.DecodeEntities(text)
-	if msgType == event.MsgText {
+	if msgType == event.MsgText && kind == textNormal {
 		// "/me" actions are sent as normal messages with a prefix.
 		if rest, ok := strings.CutPrefix(text, "/me "); ok {
 			msgType = event.MsgEmote
@@ -204,18 +239,24 @@ func (c *FChatClient) convertText(ctx context.Context, text string, msgType even
 			text = text[3:]
 		}
 	}
-	res := bbcode.ToHTML(text, c.bbcodeOptions(ctx))
+	opts := c.bbcodeOptions(ctx)
+	opts.NoPreview = c.isFListURL
+	res := bbcode.ToHTML(text, opts)
 	content := &event.MessageEventContent{
 		MsgType: msgType,
 		Body:    prefix + res.Plain,
 	}
-	if res.HasFormatting || prefix != "" {
+	if res.HasFormatting || prefix != "" || kind == textAd {
 		content.Format = event.FormatHTML
 		htmlPrefix := ""
 		if prefix != "" {
-			htmlPrefix = "<strong>" + strings.TrimSpace(prefix) + "</strong> "
+			htmlPrefix = "<strong>" + html.EscapeString(strings.TrimSpace(prefix)) + "</strong> "
 		}
 		content.FormattedBody = htmlPrefix + res.HTML
+		if kind == textAd {
+			// Element doesn't generate previews for links in quotes.
+			content.FormattedBody = "<blockquote>" + content.FormattedBody + "</blockquote>"
+		}
 	}
 	// Mention the Matrix user if their character is mentioned in a [user] tag.
 	ownMXID := c.UserLogin.UserMXID
@@ -224,16 +265,27 @@ func (c *FChatClient) convertText(ctx context.Context, text string, msgType even
 	} else {
 		content.Mentions = &event.Mentions{}
 	}
-	return content
+	// Turn off previews for ads, and for messages that only have F-List links.
+	if kind == textAd || (res.HiddenPreviews > 0 && len(res.PreviewLinks) == 0) {
+		disableLinkPreviews(content)
+	}
+	return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: content}
 }
 
 // messageConverter creates the Matrix content of a message when the portal handles it.
-type messageConverter func(ctx context.Context) *event.MessageEventContent
+type messageConverter func(ctx context.Context) *bridgev2.ConvertedMessagePart
 
 // textMessage returns a converter for an F-Chat message text.
 func (c *FChatClient) textMessage(text string, msgType event.MessageType, prefix string) messageConverter {
-	return func(ctx context.Context) *event.MessageEventContent {
-		return c.convertText(ctx, text, msgType, prefix)
+	return func(ctx context.Context) *bridgev2.ConvertedMessagePart {
+		return c.convertText(ctx, text, msgType, prefix, textNormal)
+	}
+}
+
+// adMessage returns a converter for a roleplay ad.
+func (c *FChatClient) adMessage(text string) messageConverter {
+	return func(ctx context.Context) *bridgev2.ConvertedMessagePart {
+		return c.convertText(ctx, text, event.MsgText, "[Ad] ", textAd)
 	}
 }
 
@@ -255,10 +307,7 @@ func (c *FChatClient) queueMessage(portalKey networkid.PortalKey, senderName str
 		Data: convert,
 		ConvertMessageFunc: func(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, convert messageConverter) (*bridgev2.ConvertedMessage, error) {
 			return &bridgev2.ConvertedMessage{
-				Parts: []*bridgev2.ConvertedMessagePart{{
-					Type:    event.EventMessage,
-					Content: convert(ctx),
-				}},
+				Parts: []*bridgev2.ConvertedMessagePart{convert(ctx)},
 			}, nil
 		},
 	})
@@ -288,11 +337,11 @@ func (c *FChatClient) handleChannelMessage(msg *fchat.ChannelMessage, isAd bool)
 		return
 	}
 	c.rememberName(msg.Character)
-	prefix := ""
+	convert := c.textMessage(msg.Message, event.MsgText, "")
 	if isAd {
-		prefix = "[Ad] "
+		convert = c.adMessage(msg.Message)
 	}
-	c.queueMessage(makeChannelPortalKey(msg.Channel, c.UserLogin.ID), msg.Character, c.textMessage(msg.Message, event.MsgText, prefix), false)
+	c.queueMessage(makeChannelPortalKey(msg.Channel, c.UserLogin.ID), msg.Character, convert, false)
 }
 
 func (c *FChatClient) handlePrivateMessage(msg *fchat.PrivateMessage) {
@@ -716,10 +765,10 @@ func (c *FChatClient) handleStatus(sta *fchat.StatusChange) {
 	if statusMsg != "" {
 		text += ": " + statusMsg
 	}
-	c.queueMessage(portal.PortalKey, sta.Character, func(ctx context.Context) *event.MessageEventContent {
-		content := c.convertText(ctx, text, event.MsgNotice, "")
-		content.Mentions = &event.Mentions{}
-		return content
+	c.queueMessage(portal.PortalKey, sta.Character, func(ctx context.Context) *bridgev2.ConvertedMessagePart {
+		part := c.convertText(ctx, text, event.MsgNotice, "", textNormal)
+		part.Content.Mentions = &event.Mentions{}
+		return part
 	}, false)
 }
 

@@ -10,10 +10,12 @@ built on [mautrix-go bridgev2](https://pkg.go.dev/maunium.net/go/mautrix/bridgev
 | Public channels and private rooms (ADH-…)       | One Matrix room per channel and login                                    |
 | Private messages (PRI)                          | DM rooms, started with `start-chat <character>`                          |
 | BBCode (b, i, u, s, sup, sub, color, url, user, icon, eicon, spoiler, noparse, session) | HTML formatting, in both directions           |
-| `[icon]`, `[eicon]` and emoticons (`:heart:`, `:lif-smile:`, …) | Inline images (uploaded to Matrix once and cached)        |
-| `[user]` names                                  | Clickable name in the F-Chat gender color, opens the private chat        |
+| `[eicon]` and emoticons (`:heart:`, `:lif-smile:`, …) | Inline images (uploaded to Matrix once and cached)                 |
+| `[icon]`                                        | Avatar image, then 💬 (opens the private chat) and 🏠 (F-List profile)   |
+| `[user]` names                                  | Name in the F-Chat gender color that opens the private chat, then 🏠 (F-List profile) |
 | `/me` actions                                   | `m.emote`                                                                |
-| Roleplay ads (LRP)                              | Message with an `[Ad]` prefix; send with `ad <text>`                     |
+| Roleplay ads (LRP)                              | Quoted message with an `[Ad]` prefix; send with `ad <text>`; turn on/off per character or room with `ads` |
+| Character search (FKS)                          | `find-partners` command                                                  |
 | Dice rolls / bottle spins (RLL)                 | Notice; send with `roll 1d20` or `bottle`                                |
 | Typing status (TPN) in DMs                      | Typing notifications (both directions)                                   |
 | Channel description (CDS)                       | Room topic (both directions; changing it requires channel op)            |
@@ -37,6 +39,10 @@ F-Chat messages have no IDs. Because of that, there are **no edits, deletions, r
 replies or threads**, and no message history (backfill). The server doesn't confirm successful
 messages; errors (such as flood control or "character not found") are matched to the sent
 message using a short time window (`error_wait_ms`).
+
+Link previews: links to F-List are shown in inline code and ads as quotes, because Element doesn't
+generate previews there. Messages also carry an empty `com.beeper.linkpreviews` list (MSC4095)
+when they only contain F-List links (and always for ads), which clients that support it respect.
 
 Matrix clients choose the colors of member names themselves, so room members can't get their
 F-Chat gender colors. Names in lists and `[user]` tags in messages are colored instead.
@@ -143,6 +149,8 @@ More commands (in portal rooms, use the `!fchat` prefix):
 | `status <status> [message]`    | Set your status (online, looking, busy, dnd, idle, away)         |
 | `roll <dice>` / `bottle`       | Roll dice / spin the bottle in the current channel               |
 | `ad <text>`                    | Post a roleplay ad in the current channel                        |
+| `ads [room\|character] [on\|off\|default]` | Show or hide ads: in a channel room for that room, elsewhere for the character (without arguments: show the settings) |
+| `find-partners kinks: … [; genders: …; limit: N]` | Find online characters (without arguments: help and the possible values) |
 | `invite <character>`           | Invite a character to the current private room                   |
 | `ignore [remove] <character>`  | Edit your ignore list                                            |
 | `reconnect`                    | Reconnect (e.g. after "logged in at another location")           |

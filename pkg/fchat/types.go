@@ -47,6 +47,7 @@ const (
 	CmdRoomMode       = "RMO"
 	CmdRoomStatus     = "RST"
 	CmdRealtimeBridge = "RTB"
+	CmdSearch         = "FKS"
 	CmdStatus         = "STA"
 	CmdSystem         = "SYS"
 	CmdTyping         = "TPN"
@@ -343,4 +344,20 @@ type ChannelTimeoutRequest struct {
 // user-created room (ADH-xxxx) rather than an official public channel.
 func IsPrivateChannelID(channel string) bool {
 	return strings.HasPrefix(strings.ToUpper(channel), "ADH-")
+}
+
+// SearchRequest is the payload of FKS (character search). Kinks are kink IDs.
+type SearchRequest struct {
+	Kinks        []string `json:"kinks"`
+	Genders      []string `json:"genders,omitempty"`
+	Orientations []string `json:"orientations,omitempty"`
+	Languages    []string `json:"languages,omitempty"`
+	FurryPrefs   []string `json:"furryprefs,omitempty"`
+	Roles        []string `json:"roles,omitempty"`
+	Positions    []string `json:"positions,omitempty"`
+}
+
+// SearchResult is the server's FKS response: the names of the matching characters that are online.
+type SearchResult struct {
+	Characters []string `json:"characters"`
 }

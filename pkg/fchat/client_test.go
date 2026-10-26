@@ -208,6 +208,29 @@ func TestClientSession(t *testing.T) {
 	if len(list.Channels) != 1 || list.Channels[0].Name != "Frontpage" {
 		t.Errorf("unexpected channel list %+v", list)
 	}
+
+	// Character search: results, and an error code instead of results.
+	searchErrs := []int{ErrCodeNoSearchResults, ErrCodeTooManyResults, ErrCodeSearchThrottled}
+	go func() {
+		cmd := fs.expect(CmdSearch)
+		if !strings.Contains(string(cmd.Payload), `"kinks":["523"]`) || !strings.Contains(string(cmd.Payload), `"genders":["Male"]`) {
+			t.Errorf("unexpected FKS payload %s", cmd.Payload)
+		}
+		fs.toClient <- `FKS {"characters":["Some Guy","Another Guy"],"kinks":["523"]}`
+	}()
+	var result SearchResult
+	err = client.RequestOrError(ctx, CmdSearch, &SearchRequest{Kinks: []string{"523"}, Genders: []string{"Male"}}, CmdSearch, &result, searchErrs...)
+	if err != nil || len(result.Characters) != 2 {
+		t.Fatalf("unexpected search result %+v, %v", result, err)
+	}
+	go func() {
+		fs.expect(CmdSearch)
+		fs.toClient <- `ERR {"number":18,"message":"No characters were found."}`
+	}()
+	err = client.RequestOrError(ctx, CmdSearch, &SearchRequest{Kinks: []string{"1"}}, CmdSearch, &result, searchErrs...)
+	if !errors.As(err, &fcErr) || fcErr.Code != ErrCodeNoSearchResults {
+		t.Fatalf("expected error 18, got %v", err)
+	}
 }
 
 func TestClientFatalError(t *testing.T) {

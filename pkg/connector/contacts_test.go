@@ -40,7 +40,7 @@ func TestContactEntriesAndRender(t *testing.T) {
 		"Your bookmarks (showing 3 of 5, 1 online):",
 		`<img src="mxc://example.com/zed" alt="" title="Zed" width="24" height="24">`,
 		`<a href="https://matrix.to/#/%23fchat_open_x:example.com"><font color="#ff6699" data-mx-color="#ff6699"><strong>Zed</strong></font></a>`,
-		`<a href="https://www.f-list.net/c/Zed" title="F-List profile">🔗</a>`,
+		`<code><a href="https://www.f-list.net/c/Zed" title="F-List profile">🏠</a></code>`,
 		"🟢 looking: LF &lt;RP&gt;",
 		"⚫ offline",
 		"<code>!fchat start-chat &lt;name&gt;</code>",

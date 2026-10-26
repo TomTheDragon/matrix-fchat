@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -66,6 +67,8 @@ type Client struct {
 
 	waitersLock sync.Mutex
 	waiters     map[string][]chan json.RawMessage
+	// errWaiters receive ERR commands with specific codes while a request waits for its response.
+	errWaiters map[int][]chan *Error
 
 	varsLock sync.RWMutex
 	vars     map[string]json.RawMessage
@@ -81,10 +84,11 @@ func NewClient(cfg ClientConfig, log zerolog.Logger) *Client {
 		cfg.ErrorWait = time.Second
 	}
 	return &Client{
-		cfg:     cfg,
-		log:     log,
-		waiters: make(map[string][]chan json.RawMessage),
-		vars:    make(map[string]json.RawMessage),
+		cfg:        cfg,
+		log:        log,
+		waiters:    make(map[string][]chan json.RawMessage),
+		errWaiters: make(map[int][]chan *Error),
+		vars:       make(map[string]json.RawMessage),
 	}
 }
 
@@ -327,7 +331,7 @@ func (c *Client) session(ctx context.Context, forceNewTicket bool, dispatch chan
 			} else if !identified && (fcErr.Code == ErrCodeNoLoginSlots || fcErr.Code == ErrCodeLoginTimedOut) {
 				return &fcErr
 			}
-			if c.deliverError(&fcErr) {
+			if c.deliverErrorToWaiter(&fcErr) || c.deliverError(&fcErr) {
 				continue
 			}
 		case CmdVariable:
@@ -460,25 +464,49 @@ func (c *Client) deliverToWaiter(cmd RawCommand) bool {
 	return true
 }
 
+func (c *Client) deliverErrorToWaiter(fcErr *Error) bool {
+	c.waitersLock.Lock()
+	defer c.waitersLock.Unlock()
+	list := c.errWaiters[fcErr.Code]
+	if len(list) == 0 {
+		return false
+	}
+	// Errors don't say which request they belong to, so the oldest request gets it.
+	list[0] <- fcErr
+	c.errWaiters[fcErr.Code] = list[1:]
+	return true
+}
+
 // Request sends a command and waits for a specific response command.
 func (c *Client) Request(ctx context.Context, code string, payload any, responseCode string, into any) error {
+	return c.RequestOrError(ctx, code, payload, responseCode, into)
+}
+
+// RequestOrError is like Request, but also returns an *Error if the server answers
+// with one of the given error codes instead.
+func (c *Client) RequestOrError(ctx context.Context, code string, payload any, responseCode string, into any, errCodes ...int) error {
 	ch := make(chan json.RawMessage, 1)
+	errCh := make(chan *Error, 1)
 	c.waitersLock.Lock()
 	c.waiters[responseCode] = append(c.waiters[responseCode], ch)
+	for _, errCode := range errCodes {
+		c.errWaiters[errCode] = append(c.errWaiters[errCode], errCh)
+	}
 	c.waitersLock.Unlock()
-	removeWaiter := func() {
+	removeWaiters := func() {
 		c.waitersLock.Lock()
 		defer c.waitersLock.Unlock()
-		list := c.waiters[responseCode]
-		for i, item := range list {
-			if item == ch {
-				c.waiters[responseCode] = append(list[:i], list[i+1:]...)
-				break
-			}
+		c.waiters[responseCode] = slices.DeleteFunc(c.waiters[responseCode], func(item chan json.RawMessage) bool {
+			return item == ch
+		})
+		for _, errCode := range errCodes {
+			c.errWaiters[errCode] = slices.DeleteFunc(c.errWaiters[errCode], func(item chan *Error) bool {
+				return item == errCh
+			})
 		}
 	}
+	defer removeWaiters()
 	if err := c.Send(ctx, code, payload); err != nil {
-		removeWaiter()
 		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -489,8 +517,9 @@ func (c *Client) Request(ctx context.Context, code string, payload any, response
 			return nil
 		}
 		return json.Unmarshal(data, into)
+	case fcErr := <-errCh:
+		return fcErr
 	case <-ctx.Done():
-		removeWaiter()
 		return fmt.Errorf("timed out waiting for %s response", responseCode)
 	}
 }

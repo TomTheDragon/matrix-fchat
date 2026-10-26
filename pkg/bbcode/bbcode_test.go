@@ -1,6 +1,7 @@
 package bbcode
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -29,7 +30,7 @@ func TestToHTML(t *testing.T) {
 		{"url plain", "[url]https://example.com[/url]", `<a href="https://example.com">https://example.com</a>`, "https://example.com"},
 		{"url unsafe", "[url=javascript:alert(1)]x[/url]", "x", "x"},
 		{"url attr escape", `[url=https://e.com/"><script>]x[/url]`, `<a href="https://e.com/&#34;&gt;&lt;script&gt;">x</a>`, `x (https://e.com/"><script>)`},
-		{"user", "[user]Some Name[/user]", `<a href="https://www.f-list.net/c/Some Name">Some Name</a>`, "Some Name"},
+		{"user", "[user]Some Name[/user]", `Some Name<a href="https://www.f-list.net/c/Some Name">🏠</a>`, "Some Name"},
 		{"noparse", "[noparse][b]x[/b][/noparse]", "[b]x[/b]", "[b]x[/b]"},
 		{"eicon", "[eicon]wave[/eicon]", `<a href="https://static.f-list.net/images/eicon/wave.gif">:wave:</a>`, ":wave:"},
 		{"spoiler", "[spoiler]x[/spoiler]", "<span data-mx-spoiler>x</span>", "||x||"},
@@ -54,7 +55,7 @@ func TestUserMention(t *testing.T) {
 	opts := testOpts
 	opts.UserMention = func(name string) string { return "@fchat_" + name + ":example.com" }
 	res := ToHTML("hi [user]bob[/user]", opts)
-	want := `hi <a href="https://matrix.to/#/@fchat_bob:example.com">bob</a>`
+	want := `hi <a href="https://matrix.to/#/@fchat_bob:example.com">bob</a><a href="https://www.f-list.net/c/bob">🏠</a>`
 	if res.HTML != want {
 		t.Errorf("got %q, want %q", res.HTML, want)
 	}
@@ -71,17 +72,20 @@ func TestImagesAndLinks(t *testing.T) {
 		return "mxc://x/eicon_" + name
 	}
 	opts.EmoticonImage = func(name string) string { return "mxc://x/" + name }
+	opts.NoPreview = func(href string) bool { return strings.Contains(href, "f-list.net") }
 	tests := []struct {
 		name, in, html, plain string
 	}{
 		{"user", "[user]bob[/user]",
-			`<a href="https://matrix.to/#/%23open_bob"><font color="#6699ff" data-mx-color="#6699ff">bob</font></a>`, "bob"},
+			`<a href="https://matrix.to/#/%23open_bob"><font color="#6699ff" data-mx-color="#6699ff">bob</font></a>` +
+				`<code><a href="https://www.f-list.net/c/bob">🏠</a></code>`, "bob"},
 		{"icon", "[icon]bob[/icon]",
-			`<a href="https://matrix.to/#/%23open_bob"><img src="mxc://x/avatar_bob" alt="bob" title="bob" width="50" height="50"></a>`, "bob"},
+			`<img src="mxc://x/avatar_bob" alt="bob" title="bob" width="50" height="50">` +
+				`<a href="https://matrix.to/#/%23open_bob">💬</a><code><a href="https://www.f-list.net/c/bob">🏠</a></code>`, "bob"},
 		{"eicon", "[eicon]wave[/eicon]",
 			`<img src="mxc://x/eicon_wave" alt="wave" title="wave" width="50" height="50">`, ":wave:"},
 		{"missing eicon", "[eicon]missing[/eicon]",
-			`<a href="https://static.f-list.net/images/eicon/missing.gif">:missing:</a>`, ":missing:"},
+			`<code><a href="https://static.f-list.net/images/eicon/missing.gif">:missing:</a></code>`, ":missing:"},
 		{"emoticon", "hi :heart: :nope: :lif-smile:x",
 			`hi <img data-mx-emoticon src="mxc://x/heart" alt=":heart:" title=":heart:" height="21"> :nope: <img data-mx-emoticon src="mxc://x/lif-smile" alt=":lif-smile:" title=":lif-smile:" height="21">x`,
 			"hi :heart: :nope: :lif-smile:x"},
@@ -98,6 +102,18 @@ func TestImagesAndLinks(t *testing.T) {
 				t.Errorf("Plain:\n got %q\nwant %q", res.Plain, tt.plain)
 			}
 		})
+	}
+}
+
+func TestPreviewLinks(t *testing.T) {
+	opts := testOpts
+	opts.NoPreview = func(href string) bool { return strings.Contains(href, "f-list.net") }
+	res := ToHTML("[url]https://www.f-list.net/c/x[/url] [url=https://example.com]e[/url] [user]x[/user]", opts)
+	if res.HiddenPreviews != 2 || len(res.PreviewLinks) != 1 || res.PreviewLinks[0] != "https://example.com" {
+		t.Errorf("unexpected links: %d hidden, %v", res.HiddenPreviews, res.PreviewLinks)
+	}
+	if !strings.HasPrefix(res.HTML, `<code><a href="https://www.f-list.net/c/x">https://www.f-list.net/c/x</a></code>`) {
+		t.Errorf("F-List link not wrapped in code: %s", res.HTML)
 	}
 }
 

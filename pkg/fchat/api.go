@@ -223,6 +223,36 @@ type FriendListEntry struct {
 	LastOnline int64  `json:"last_online"`
 }
 
+// MappingList is the response of /json/api/mapping-list.php: the kinks and the values of
+// profile fields. It doesn't need a ticket.
+type MappingList struct {
+	Kinks []struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		GroupID     string `json:"group_id"`
+	} `json:"kinks"`
+	ListItems []struct {
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	} `json:"listitems"`
+	Error string `json:"error"`
+}
+
+// GetMappingList requests the list of kinks and profile field values.
+func (api *API) GetMappingList(ctx context.Context) (*MappingList, error) {
+	const endpoint = "/json/api/mapping-list.php"
+	var resp MappingList
+	if err := api.post(ctx, endpoint, url.Values{}, &resp); err != nil {
+		return nil, err
+	}
+	if resp.Error != "" {
+		return nil, &APIError{Endpoint: endpoint, Message: resp.Error}
+	}
+	return &resp, nil
+}
+
 // FriendBookmarkLists is the response of /json/api/friend-bookmark-lists.php.
 type FriendBookmarkLists struct {
 	Bookmarks []string          `json:"bookmarklist"`
