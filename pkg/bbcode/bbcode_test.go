@@ -30,7 +30,7 @@ func TestToHTML(t *testing.T) {
 		{"url plain", "[url]https://example.com[/url]", `<a href="https://example.com">https://example.com</a>`, "https://example.com"},
 		{"url unsafe", "[url=javascript:alert(1)]x[/url]", "x", "x"},
 		{"url attr escape", `[url=https://e.com/"><script>]x[/url]`, `<a href="https://e.com/&#34;&gt;&lt;script&gt;">x</a>`, `x (https://e.com/"><script>)`},
-		{"user", "[user]Some Name[/user]", `Some Name<a href="https://www.f-list.net/c/Some Name">🏠</a>`, "Some Name"},
+		{"user", "[user]Some Name[/user]", `<code><a href="https://www.f-list.net/c/Some Name">Some Name</a></code>`, "Some Name"},
 		{"noparse", "[noparse][b]x[/b][/noparse]", "[b]x[/b]", "[b]x[/b]"},
 		{"eicon", "[eicon]wave[/eicon]", `<a href="https://static.f-list.net/images/eicon/wave.gif">:wave:</a>`, ":wave:"},
 		{"spoiler", "[spoiler]x[/spoiler]", "<span data-mx-spoiler>x</span>", "||x||"},
@@ -54,10 +54,13 @@ func TestToHTML(t *testing.T) {
 func TestUserMention(t *testing.T) {
 	opts := testOpts
 	opts.UserMention = func(name string) string { return "@fchat_" + name + ":example.com" }
-	res := ToHTML("hi [user]bob[/user]", opts)
-	want := `hi <a href="https://matrix.to/#/@fchat_bob:example.com">bob</a><a href="https://www.f-list.net/c/bob">🏠</a>`
-	if res.HTML != want {
-		t.Errorf("got %q, want %q", res.HTML, want)
+	res := ToHTML("hi [user]bob[/user] [icon]bob[/icon]", opts)
+	if len(res.Mentions) != 2 || res.Mentions[0] != "@fchat_bob:example.com" {
+		t.Errorf("unexpected mentions %v", res.Mentions)
+	}
+	// Mentions are reported, but not rendered as pills (Element would hide the name).
+	if strings.Contains(res.HTML, "matrix.to") {
+		t.Errorf("mention rendered as pill: %s", res.HTML)
 	}
 }
 
@@ -77,11 +80,11 @@ func TestImagesAndLinks(t *testing.T) {
 		name, in, html, plain string
 	}{
 		{"user", "[user]bob[/user]",
-			`<a href="https://matrix.to/#/%23open_bob"><font color="#6699ff" data-mx-color="#6699ff">bob</font></a>` +
-				`<code><a href="https://www.f-list.net/c/bob">🏠</a></code>`, "bob"},
+			`<code><a href="https://www.f-list.net/c/bob"><font color="#6699ff" data-mx-color="#6699ff">bob</font></a>` +
+				` <a href="https://matrix.to/#/%23open_bob">💬</a></code>`, "bob"},
 		{"icon", "[icon]bob[/icon]",
-			`<img src="mxc://x/avatar_bob" alt="bob" title="bob" width="50" height="50">` +
-				`<a href="https://matrix.to/#/%23open_bob">💬</a><code><a href="https://www.f-list.net/c/bob">🏠</a></code>`, "bob"},
+			`<code><a href="https://www.f-list.net/c/bob"><img src="mxc://x/avatar_bob" alt="bob" title="bob" width="50" height="50"></a>` +
+				` <a href="https://matrix.to/#/%23open_bob">💬</a></code>`, "bob"},
 		{"eicon", "[eicon]wave[/eicon]",
 			`<img src="mxc://x/eicon_wave" alt="wave" title="wave" width="50" height="50">`, ":wave:"},
 		{"missing eicon", "[eicon]missing[/eicon]",
@@ -114,6 +117,17 @@ func TestPreviewLinks(t *testing.T) {
 	}
 	if !strings.HasPrefix(res.HTML, `<code><a href="https://www.f-list.net/c/x">https://www.f-list.net/c/x</a></code>`) {
 		t.Errorf("F-List link not wrapped in code: %s", res.HTML)
+	}
+}
+
+func TestOnlyEIcons(t *testing.T) {
+	if names, ok := OnlyEIcons(" [eicon]a[/eicon]\n[EICON]b c[/EICON] "); !ok || len(names) != 2 || names[1] != "b c" {
+		t.Errorf("unexpected result %v %v", names, ok)
+	}
+	for _, in := range []string{"hi [eicon]a[/eicon]", "[b][eicon]a[/eicon][/b]", "", "[eicon][/eicon]"} {
+		if _, ok := OnlyEIcons(in); ok {
+			t.Errorf("OnlyEIcons(%q) should be false", in)
+		}
 	}
 }
 

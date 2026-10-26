@@ -30,7 +30,16 @@ type UserLoginMetadata struct {
 }
 
 type GhostMetadata struct {
+	// Gender is the last known gender (F-Chat only tells it while the character is online).
 	Gender string `json:"gender,omitempty"`
+	// LastSeen is when the ghost's info was last updated (unix seconds), for the ghost cleanup.
+	LastSeen int64 `json:"last_seen,omitempty"`
+	// Removed is set when the ghost cleanup cleared the ghost's profile and rooms.
+	Removed bool `json:"removed,omitempty"`
+	// ProfileSummary is the short summary of the F-List profile, for the Matrix biography.
+	ProfileSummary string `json:"profile_summary,omitempty"`
+	// ProfileFetched is when the F-List profile was last loaded (unix seconds).
+	ProfileFetched int64 `json:"profile_fetched,omitempty"`
 }
 
 type PortalMetadata struct {

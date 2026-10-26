@@ -1,7 +1,13 @@
 package connector
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"image"
+	"image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"net/http"
 	"path"
 	"strings"
@@ -16,31 +22,42 @@ import (
 // uploaded once and the mxc:// URIs are kept in the bridge's key-value store.
 
 const (
+	// The key-value store keeps JSON-encoded cachedImages. Older versions stored only the mxc:// URI.
 	imageCacheKeyPrefix = "fchat_image:"
 	// imageFailureTTL is how long a failed download isn't retried (e.g. eicons that don't exist).
 	imageFailureTTL = time.Hour
 	imageTimeout    = 15 * time.Second
 )
 
+// cachedImage is an F-List image that was uploaded to Matrix.
+type cachedImage struct {
+	MXC      id.ContentURIString `json:"mxc"`
+	MimeType string              `json:"mimetype"`
+	Width    int                 `json:"w,omitempty"`
+	Height   int                 `json:"h,omitempty"`
+	Size     int                 `json:"size,omitempty"`
+	Animated bool                `json:"animated,omitempty"`
+}
+
 type imageCache struct {
 	lock   sync.Mutex
-	known  map[string]id.ContentURIString
+	known  map[string]*cachedImage
 	failed map[string]time.Time
 }
 
-func (ic *imageCache) get(url string) (mxc id.ContentURIString, failed bool) {
+func (ic *imageCache) get(url string) (img *cachedImage, failed bool) {
 	ic.lock.Lock()
 	defer ic.lock.Unlock()
 	if failedAt, ok := ic.failed[url]; ok && time.Since(failedAt) < imageFailureTTL {
-		return "", true
+		return nil, true
 	}
 	return ic.known[url], false
 }
 
-func (ic *imageCache) set(url string, mxc id.ContentURIString) {
+func (ic *imageCache) set(url string, img *cachedImage) {
 	ic.lock.Lock()
 	defer ic.lock.Unlock()
-	if mxc == "" {
+	if img == nil {
 		if ic.failed == nil {
 			ic.failed = make(map[string]time.Time)
 		}
@@ -48,23 +65,48 @@ func (ic *imageCache) set(url string, mxc id.ContentURIString) {
 		return
 	}
 	if ic.known == nil {
-		ic.known = make(map[string]id.ContentURIString)
+		ic.known = make(map[string]*cachedImage)
 	}
-	ic.known[url] = mxc
+	ic.known[url] = img
 	delete(ic.failed, url)
+}
+
+// describeImage reads the type, size and animation of an image.
+func describeImage(data []byte) *cachedImage {
+	img := &cachedImage{MimeType: http.DetectContentType(data), Size: len(data)}
+	if cfg, _, err := image.DecodeConfig(bytes.NewReader(data)); err == nil {
+		img.Width, img.Height = cfg.Width, cfg.Height
+	}
+	if img.MimeType == "image/gif" {
+		if anim, err := gif.DecodeAll(bytes.NewReader(data)); err == nil && len(anim.Image) > 1 {
+			img.Animated = true
+		}
+	}
+	return img
 }
 
 // imageMXC returns the mxc:// URI of an image from F-List, uploading it if necessary.
 // It returns "" if the image can't be downloaded.
 func (fc *FChatConnector) imageMXC(ctx context.Context, url string) id.ContentURIString {
-	if mxc, failed := fc.images.get(url); mxc != "" || failed {
-		return mxc
+	if img := fc.image(ctx, url); img != nil {
+		return img.MXC
+	}
+	return ""
+}
+
+// image returns an image from F-List uploaded to Matrix, uploading it if necessary.
+// It returns nil if the image can't be downloaded.
+func (fc *FChatConnector) image(ctx context.Context, url string) *cachedImage {
+	if img, failed := fc.images.get(url); img != nil || failed {
+		return img
 	}
 	kvKey := database.Key(imageCacheKeyPrefix + url)
-	if stored := fc.Bridge.DB.KV.Get(ctx, kvKey); stored != "" {
-		mxc := id.ContentURIString(stored)
-		fc.images.set(url, mxc)
-		return mxc
+	if stored := fc.Bridge.DB.KV.Get(ctx, kvKey); strings.HasPrefix(stored, "{") {
+		var img cachedImage
+		if err := json.Unmarshal([]byte(stored), &img); err == nil && img.MXC != "" {
+			fc.images.set(url, &img)
+			return &img
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, imageTimeout)
 	defer cancel()
@@ -72,24 +114,26 @@ func (fc *FChatConnector) imageMXC(ctx context.Context, url string) id.ContentUR
 	data, err := fc.download(ctx, url)
 	if err != nil {
 		log.Debug().Err(err).Msg("Failed to download image")
-		fc.images.set(url, "")
-		return ""
+		fc.images.set(url, nil)
+		return nil
 	}
-	mimeType := http.DetectContentType(data)
-	if !strings.HasPrefix(mimeType, "image/") {
-		log.Debug().Str("mime_type", mimeType).Msg("Downloaded file isn't an image")
-		fc.images.set(url, "")
-		return ""
+	img := describeImage(data)
+	if !strings.HasPrefix(img.MimeType, "image/") {
+		log.Debug().Str("mime_type", img.MimeType).Msg("Downloaded file isn't an image")
+		fc.images.set(url, nil)
+		return nil
 	}
-	mxc, _, err := fc.Bridge.Bot.UploadMedia(ctx, "", data, path.Base(url), mimeType)
+	img.MXC, _, err = fc.Bridge.Bot.UploadMedia(ctx, "", data, path.Base(url), img.MimeType)
 	if err != nil {
 		// Don't remember upload failures, they're probably temporary.
 		log.Warn().Err(err).Msg("Failed to upload image")
-		return ""
+		return nil
 	}
-	fc.Bridge.DB.KV.Set(ctx, kvKey, string(mxc))
-	fc.images.set(url, mxc)
-	return mxc
+	if encoded, err := json.Marshal(img); err == nil {
+		fc.Bridge.DB.KV.Set(ctx, kvKey, string(encoded))
+	}
+	fc.images.set(url, img)
+	return img
 }
 
 // avatarMXC returns the mxc:// URI of a character's avatar, updating the ghost if needed.

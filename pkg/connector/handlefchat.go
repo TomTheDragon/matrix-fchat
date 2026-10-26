@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"html"
 	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -258,9 +260,9 @@ func (c *FChatClient) convertText(ctx context.Context, text string, msgType even
 			content.FormattedBody = "<blockquote>" + content.FormattedBody + "</blockquote>"
 		}
 	}
-	// Mention the Matrix user if their character is mentioned in a [user] tag.
+	// Mention the Matrix user if their character is mentioned in a [user] or [icon] tag.
 	ownMXID := c.UserLogin.UserMXID
-	if strings.Contains(content.FormattedBody, "https://matrix.to/#/"+string(ownMXID)) {
+	if slices.Contains(res.Mentions, string(ownMXID)) {
 		content.Mentions = &event.Mentions{UserIDs: []id.UserID{ownMXID}}
 	} else {
 		content.Mentions = &event.Mentions{}
@@ -273,20 +275,71 @@ func (c *FChatClient) convertText(ctx context.Context, text string, msgType even
 }
 
 // messageConverter creates the Matrix content of a message when the portal handles it.
-type messageConverter func(ctx context.Context) *bridgev2.ConvertedMessagePart
+type messageConverter func(ctx context.Context) []*bridgev2.ConvertedMessagePart
 
 // textMessage returns a converter for an F-Chat message text.
 func (c *FChatClient) textMessage(text string, msgType event.MessageType, prefix string) messageConverter {
-	return func(ctx context.Context) *bridgev2.ConvertedMessagePart {
-		return c.convertText(ctx, text, msgType, prefix, textNormal)
+	return func(ctx context.Context) []*bridgev2.ConvertedMessagePart {
+		if msgType == event.MsgText && prefix == "" {
+			if names, ok := bbcode.OnlyEIcons(bbcode.DecodeEntities(text)); ok {
+				if stickers := c.eiconStickers(ctx, names); stickers != nil {
+					return stickers
+				}
+			}
+		}
+		return []*bridgev2.ConvertedMessagePart{c.convertText(ctx, text, msgType, prefix, textNormal)}
 	}
 }
 
 // adMessage returns a converter for a roleplay ad.
 func (c *FChatClient) adMessage(text string) messageConverter {
-	return func(ctx context.Context) *bridgev2.ConvertedMessagePart {
-		return c.convertText(ctx, text, event.MsgText, "[Ad] ", textAd)
+	return func(ctx context.Context) []*bridgev2.ConvertedMessagePart {
+		return []*bridgev2.ConvertedMessagePart{c.convertText(ctx, text, event.MsgText, "[Ad] ", textAd)}
 	}
+}
+
+// maxStickerSize is the maximum displayed width and height of eicon stickers.
+const maxStickerSize = 100
+
+// eiconStickers converts a message that only consists of eicons into stickers. Element only
+// plays animated GIFs in image and sticker events, inline images in formatted text are
+// always shown as still thumbnails. It returns nil if an eicon couldn't be loaded.
+func (c *FChatClient) eiconStickers(ctx context.Context, names []string) []*bridgev2.ConvertedMessagePart {
+	parts := make([]*bridgev2.ConvertedMessagePart, 0, len(names))
+	for i, name := range names {
+		img := c.Main.image(ctx, fchat.EIconURL(c.Main.Config.StaticURL, name))
+		if img == nil {
+			return nil
+		}
+		width, height := img.Width, img.Height
+		if width <= 0 || height <= 0 {
+			width, height = maxStickerSize, maxStickerSize
+		} else if scale := float64(maxStickerSize) / float64(max(width, height)); scale < 1 {
+			width, height = max(1, int(float64(width)*scale)), max(1, int(float64(height)*scale))
+		}
+		info := &event.FileInfo{
+			MimeType:   img.MimeType,
+			Width:      width,
+			Height:     height,
+			Size:       img.Size,
+			IsAnimated: img.Animated,
+		}
+		if img.Animated {
+			// Element reads the unstable key of MSC4230.
+			info.Extra = map[string]any{"org.matrix.msc4230.is_animated": true}
+		}
+		parts = append(parts, &bridgev2.ConvertedMessagePart{
+			ID:   networkid.PartID(strconv.Itoa(i)),
+			Type: event.EventSticker,
+			Content: &event.MessageEventContent{
+				Body:     name,
+				URL:      img.MXC,
+				Info:     info,
+				Mentions: &event.Mentions{},
+			},
+		})
+	}
+	return parts
 }
 
 func (c *FChatClient) queueMessage(portalKey networkid.PortalKey, senderName string, convert messageConverter, createPortal bool) {
@@ -307,7 +360,7 @@ func (c *FChatClient) queueMessage(portalKey networkid.PortalKey, senderName str
 		Data: convert,
 		ConvertMessageFunc: func(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, convert messageConverter) (*bridgev2.ConvertedMessage, error) {
 			return &bridgev2.ConvertedMessage{
-				Parts: []*bridgev2.ConvertedMessagePart{convert(ctx)},
+				Parts: convert(ctx),
 			}, nil
 		},
 	})
@@ -753,6 +806,10 @@ func (c *FChatClient) handleStatus(sta *fchat.StatusChange) {
 	info.Status = sta.Status
 	info.StatusMsg = statusMsg
 	c.stateLock.Unlock()
+	if userID != c.ownID && c.Main.extraProfileSupported() && c.isKnownCharacter(userID) {
+		// The status is part of the ghost's Matrix biography.
+		go c.refreshGhostProfile(sta.Character)
+	}
 	if !c.Main.Config.BridgeStatusChanges || userID == c.ownID {
 		return
 	}
@@ -765,10 +822,10 @@ func (c *FChatClient) handleStatus(sta *fchat.StatusChange) {
 	if statusMsg != "" {
 		text += ": " + statusMsg
 	}
-	c.queueMessage(portal.PortalKey, sta.Character, func(ctx context.Context) *bridgev2.ConvertedMessagePart {
+	c.queueMessage(portal.PortalKey, sta.Character, func(ctx context.Context) []*bridgev2.ConvertedMessagePart {
 		part := c.convertText(ctx, text, event.MsgNotice, "", textNormal)
 		part.Content.Mentions = &event.Mentions{}
-		return part
+		return []*bridgev2.ConvertedMessagePart{part}
 	}, false)
 }
 

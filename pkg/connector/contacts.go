@@ -238,7 +238,7 @@ func (c *FChatClient) loadAvatars(ctx context.Context, entries []*contactEntry) 
 					continue
 				}
 				// Doesn't download anything if the avatar is already up to date.
-				ghost.UpdateInfo(ctx, c.Main.makeUserInfo(entry.Name))
+				ghost.UpdateInfo(ctx, c.userInfo(entry.Name))
 				entry.AvatarMXC = string(ghost.AvatarMXC)
 				c.syncGhostGender(ctx, ghost, entry)
 			}
@@ -301,16 +301,20 @@ func (e *contactEntry) statusText() string {
 
 const avatarSize = 24
 
-// renderName renders the name of a character in its F-Chat gender color, linked to the chat with it.
-func renderName(name, gender, link string) string {
-	out := "<strong>" + html.EscapeString(name) + "</strong>"
+// renderName renders the name of a character in its F-Chat gender color, linked to its
+// F-List profile, followed by a 💬 link to the chat with it. Like [user] tags, the links are
+// in <code>, because Element replaces matrix.to links with pills (hiding the name) and
+// shows previews for other links, but does neither inside code.
+func renderName(name, gender, profile, chat string) string {
+	label := "<strong>" + html.EscapeString(name) + "</strong>"
 	if color := genderColor(gender); color != "" {
-		out = fmt.Sprintf(`<font color="%s" data-mx-color="%s">%s</font>`, color, color, out)
+		label = fmt.Sprintf(`<font color="%s" data-mx-color="%s">%s</font>`, color, color, label)
 	}
-	if link != "" {
-		out = fmt.Sprintf(`<a href="%s">%s</a>`, html.EscapeString(link), out)
+	out := fmt.Sprintf(`<code><a href="%s">%s</a>`, html.EscapeString(profile), label)
+	if chat != "" {
+		out += fmt.Sprintf(` <a href="%s">💬</a>`, html.EscapeString(chat))
 	}
-	return out
+	return out + "</code>"
 }
 
 // renderContactList renders the list as a notice with inline avatars.
@@ -333,13 +337,13 @@ func (fc *FChatConnector) renderContactList(title string, entries []*contactEntr
 			fmt.Fprintf(&htmlOut, `<img src="%s" alt="" title="%s" width="%d" height="%d"> `,
 				html.EscapeString(entry.AvatarMXC), html.EscapeString(entry.Name), avatarSize, avatarSize)
 		}
-		fmt.Fprintf(&htmlOut, `%s<code><a href="%s" title="F-List profile">🏠</a></code> – %s</li>`+"\n",
-			renderName(entry.Name, entry.Gender, entry.ChatLink), html.EscapeString(profile), html.EscapeString(status))
+		fmt.Fprintf(&htmlOut, "%s – %s</li>\n",
+			renderName(entry.Name, entry.Gender, profile, entry.ChatLink), html.EscapeString(status))
 	}
 	htmlOut.WriteString("</ul>\n")
 	startChat := fc.Bridge.Config.CommandPrefix + " start-chat <name>"
 	plain.WriteString("\nStart a private chat with `" + startChat + "`")
-	fmt.Fprintf(&htmlOut, "<p>Click a name to open the private chat, 🏠 opens the F-List profile. "+
+	fmt.Fprintf(&htmlOut, "<p>Click a name to open the F-List profile, 💬 opens the private chat. "+
 		"You can also use <code>%s</code>.", html.EscapeString(startChat))
 	if total > len(entries) {
 		plain.WriteString("\nShow more with `" + usage + "`")

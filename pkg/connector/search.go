@@ -57,9 +57,11 @@ var searchFields = []*searchField{
 }
 
 type searchOptions struct {
-	Kinks   []searchKink
-	Values  map[string][]string // searchField.Key -> allowed values
-	fetched time.Time
+	Kinks  []searchKink
+	Values map[string][]string // searchField.Key -> allowed values
+	// ListItems maps list item IDs to their values (for profile infotags).
+	ListItems map[string]string
+	fetched   time.Time
 }
 
 type searchOptionsCache struct {
@@ -92,7 +94,9 @@ func (fc *FChatConnector) getSearchOptions(ctx context.Context) (*searchOptions,
 	slices.SortFunc(opts.Kinks, func(a, b searchKink) int {
 		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
 	})
+	opts.ListItems = make(map[string]string, len(mapping.ListItems))
 	for _, item := range mapping.ListItems {
+		opts.ListItems[item.ID] = html.UnescapeString(item.Value)
 		for _, field := range searchFields {
 			if item.Name == field.ListName {
 				opts.Values[field.Key] = append(opts.Values[field.Key], html.UnescapeString(item.Value))

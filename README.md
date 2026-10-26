@@ -10,9 +10,10 @@ built on [mautrix-go bridgev2](https://pkg.go.dev/maunium.net/go/mautrix/bridgev
 | Public channels and private rooms (ADH-…)       | One Matrix room per channel and login                                    |
 | Private messages (PRI)                          | DM rooms, started with `start-chat <character>`                          |
 | BBCode (b, i, u, s, sup, sub, color, url, user, icon, eicon, spoiler, noparse, session) | HTML formatting, in both directions           |
-| `[eicon]` and emoticons (`:heart:`, `:lif-smile:`, …) | Inline images (uploaded to Matrix once and cached)                 |
-| `[icon]`                                        | Avatar image, then 💬 (opens the private chat) and 🏠 (F-List profile)   |
-| `[user]` names                                  | Name in the F-Chat gender color that opens the private chat, then 🏠 (F-List profile) |
+| `[eicon]` and emoticons (`:heart:`, `:lif-smile:`, …) | Inline images (uploaded to Matrix once and cached); messages with only eicons are sent as stickers, so animated eicons play |
+| `[icon]`                                        | Avatar image linked to the F-List profile, then 💬 (opens the private chat) |
+| `[user]` names                                  | Name in the F-Chat gender color linked to the F-List profile, then 💬 (opens the private chat) |
+| Character profiles                              | Ghost biography (status + profile summary), pronouns and name color (see [Profile fields](#profile-fields)) |
 | `/me` actions                                   | `m.emote`                                                                |
 | Roleplay ads (LRP)                              | Quoted message with an `[Ad]` prefix; send with `ad <text>`; turn on/off per character or room with `ads` |
 | Character search (FKS)                          | `find-partners` command                                                  |
@@ -41,8 +42,13 @@ messages; errors (such as flood control or "character not found") are matched to
 message using a short time window (`error_wait_ms`).
 
 Link previews: links to F-List are shown in inline code and ads as quotes, because Element doesn't
-generate previews there. Messages also carry an empty `com.beeper.linkpreviews` list (MSC4095)
+generate previews there. Links that open chats and channels are in inline code as well, because
+Element otherwise replaces them with pills, which hides the name. Messages also carry an empty `com.beeper.linkpreviews` list (MSC4095)
 when they only contain F-List links (and always for ads), which clients that support it respect.
+
+Element only plays animated images (eicons) in image and sticker events, never in formatted text.
+That's why messages that only contain eicons are sent as stickers (Element plays them on hover,
+or always with "Autoplay GIFs" enabled), while eicons mixed with text stay still images in Element.
 
 Matrix clients choose the colors of member names themselves, so room members can't get their
 F-Chat gender colors. Names in lists and `[user]` tags in messages are colored instead.
@@ -77,6 +83,32 @@ The script builds with `-tags goolm` (a pure Go implementation of Olm), so `libo
    ./matrix-fchat -g
    ```
 3. Start the bridge: `./matrix-fchat`
+
+### Profile fields
+
+Ghosts get custom Matrix profile fields: a biography with a short summary of the F-List profile
+(gender, species, age, orientation, role, "currently looking for") and the F-Chat status,
+pronouns (Male: he/him, Female: she/her, other genders: they/them) and a name color in the
+F-Chat gender color. This needs a homeserver with custom profile fields (Matrix v1.16 / MSC4133;
+in Synapse `experimental_features: msc4133_enabled: true`) and, in the bridge config:
+
+```yaml
+matrix:
+    ghost_extra_profile_info: true
+```
+
+There are no stable field names yet, so the bridge sets the keys of the proposals
+(`m.biography`/`gay.fomx.biography`, `m.pronouns`/`io.fsky.nyx.pronouns`) and the keys used by
+Sable and Commet (`moe.sable.app.bio`, `chat.commet.profile_bio`, `moe.sable.app.name_color`).
+Element doesn't show these fields yet. Profiles are loaded from F-List at most once a week per
+character (`network: fetch_character_profiles`).
+
+### Ghost cleanup
+
+With `network: ghost_cleanup_days` set, ghosts that weren't seen for that many days and that
+nobody has a private chat with are removed once an hour: they leave all rooms and their Matrix
+profile is cleared (an appservice can't delete Matrix accounts). They're restored automatically
+when the character shows up again. The cleanup only runs while all logins are connected.
 
 ### Join and chat links
 

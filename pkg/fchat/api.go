@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -245,6 +246,55 @@ func (api *API) GetMappingList(ctx context.Context) (*MappingList, error) {
 	const endpoint = "/json/api/mapping-list.php"
 	var resp MappingList
 	if err := api.post(ctx, endpoint, url.Values{}, &resp); err != nil {
+		return nil, err
+	}
+	if resp.Error != "" {
+		return nil, &APIError{Endpoint: endpoint, Message: resp.Error}
+	}
+	return &resp, nil
+}
+
+// CharacterData is the part of /json/api/character-data.php that the bridge uses.
+type CharacterData struct {
+	Name string `json:"name"`
+	// Infotags maps infotag IDs to values. For list infotags, the value is a list item ID.
+	Infotags map[string]string `json:"-"`
+	Error    string            `json:"error"`
+}
+
+// UnmarshalJSON reads the infotags, which can be an object of strings or numbers, or an
+// empty array (PHP encodes empty objects as arrays).
+func (cd *CharacterData) UnmarshalJSON(data []byte) error {
+	type plain CharacterData
+	var raw struct {
+		*plain
+		Infotags json.RawMessage `json:"infotags"`
+	}
+	raw.plain = (*plain)(cd)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	cd.Infotags = make(map[string]string)
+	var tags map[string]any
+	if len(raw.Infotags) > 0 && raw.Infotags[0] == '{' && json.Unmarshal(raw.Infotags, &tags) == nil {
+		for key, value := range tags {
+			switch v := value.(type) {
+			case string:
+				cd.Infotags[key] = v
+			case float64:
+				cd.Infotags[key] = strconv.FormatFloat(v, 'f', -1, 64)
+			}
+		}
+	}
+	return nil
+}
+
+// GetCharacterData requests the profile of a character.
+func (api *API) GetCharacterData(ctx context.Context, account, ticket, name string) (*CharacterData, error) {
+	const endpoint = "/json/api/character-data.php"
+	form := url.Values{"account": {account}, "ticket": {ticket}, "name": {name}}
+	var resp CharacterData
+	if err := api.post(ctx, endpoint, form, &resp); err != nil {
 		return nil, err
 	}
 	if resp.Error != "" {

@@ -28,6 +28,9 @@ type Config struct {
 	BridgeNotices       bool `yaml:"bridge_notices"`
 
 	DefaultStatusMessage string `yaml:"default_status_message"`
+
+	FetchCharacterProfiles bool `yaml:"fetch_character_profiles"`
+	GhostCleanupDays       int  `yaml:"ghost_cleanup_days"`
 }
 
 func (c *Config) ErrorWait() time.Duration {
@@ -60,6 +63,8 @@ func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.Bool, "bridge_status_changes")
 	helper.Copy(up.Bool, "bridge_notices")
 	helper.Copy(up.Str, "default_status_message")
+	helper.Copy(up.Bool, "fetch_character_profiles")
+	helper.Copy(up.Int, "ghost_cleanup_days")
 }
 
 func (fc *FChatConnector) GetConfig() (string, any, up.Upgrader) {
@@ -72,6 +77,8 @@ func (fc *FChatConnector) GetConfig() (string, any, up.Upgrader) {
 			{"create_friend_dms"},
 			{"bridge_status_changes"},
 			{"default_status_message"},
+			{"fetch_character_profiles"},
+			{"ghost_cleanup_days"},
 		},
 		Base: ExampleConfig,
 	}

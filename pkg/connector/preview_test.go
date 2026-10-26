@@ -1,7 +1,11 @@
 package connector
 
 import (
+	"bytes"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/gif"
 	"strings"
 	"testing"
 
@@ -34,5 +38,35 @@ func TestIsFListURL(t *testing.T) {
 		if got := c.isFListURL(href); got != want {
 			t.Errorf("isFListURL(%q) = %v, want %v", href, got, want)
 		}
+	}
+}
+
+func TestStickerInfoSerialization(t *testing.T) {
+	info := &event.FileInfo{MimeType: "image/gif", Width: 100, Height: 100, IsAnimated: true,
+		Extra: map[string]any{"org.matrix.msc4230.is_animated": true}}
+	data, err := json.Marshal(&event.MessageEventContent{Body: "x", URL: "mxc://a/b", Info: info})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"org.matrix.msc4230.is_animated":true`, `"is_animated":true`, `"mimetype":"image/gif"`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("%s missing in %s", want, data)
+		}
+	}
+}
+
+func TestDescribeImage(t *testing.T) {
+	var buf bytes.Buffer
+	pal := color.Palette{color.Black, color.White}
+	anim := &gif.GIF{
+		Image: []*image.Paletted{image.NewPaletted(image.Rect(0, 0, 4, 3), pal), image.NewPaletted(image.Rect(0, 0, 4, 3), pal)},
+		Delay: []int{10, 10},
+	}
+	if err := gif.EncodeAll(&buf, anim); err != nil {
+		t.Fatal(err)
+	}
+	img := describeImage(buf.Bytes())
+	if img.MimeType != "image/gif" || img.Width != 4 || img.Height != 3 || !img.Animated {
+		t.Errorf("unexpected image info %+v", img)
 	}
 }

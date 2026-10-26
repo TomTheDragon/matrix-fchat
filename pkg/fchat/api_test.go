@@ -58,3 +58,17 @@ func TestTicketFriendsOf(t *testing.T) {
 		t.Errorf("unexpected friends %v", friends)
 	}
 }
+
+func TestCharacterDataInfotags(t *testing.T) {
+	var cd CharacterData
+	if err := json.Unmarshal([]byte(`{"name":"X","infotags":{"3":"2","1":25,"9":"Wolf"},"error":""}`), &cd); err != nil {
+		t.Fatal(err)
+	}
+	if cd.Name != "X" || cd.Infotags["3"] != "2" || cd.Infotags["1"] != "25" || cd.Infotags["9"] != "Wolf" {
+		t.Errorf("unexpected data %+v", cd)
+	}
+	cd = CharacterData{}
+	if err := json.Unmarshal([]byte(`{"name":"Y","infotags":[]}`), &cd); err != nil || len(cd.Infotags) != 0 || cd.Name != "Y" {
+		t.Errorf("empty infotags: %+v %v", cd, err)
+	}
+}

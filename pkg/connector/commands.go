@@ -315,7 +315,8 @@ func (fc *FChatConnector) sendChannelList(ce *commands.Event, client *FChatClien
 
 		title := "<strong>" + html.EscapeString(entry.Title) + "</strong>"
 		if link := client.channelLink(entry.ID); link != "" {
-			title = fmt.Sprintf(`<a href="%s">%s</a>`, html.EscapeString(link), title)
+			// In <code>, because Element replaces matrix.to links with pills, which hides the title.
+			title = fmt.Sprintf(`<code><a href="%s">%s</a></code>`, html.EscapeString(link), title)
 		}
 		htmlOut.WriteString("<li>" + title)
 		if entry.ID != entry.Title {

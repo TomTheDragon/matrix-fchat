@@ -19,8 +19,8 @@ type Options struct {
 	ProfileURL func(name string) string
 	// EIconURL returns the image URL of an eicon.
 	EIconURL func(name string) string
-	// UserMention can optionally return a Matrix user ID to render a [user] tag
-	// as a Matrix pill (used to mention the Matrix user). If it returns "", UserLink is used.
+	// UserMention can optionally return a Matrix user ID that is mentioned by a [user] or
+	// [icon] tag with that name (used to mention the Matrix user). See Result.Mentions.
 	UserMention func(name string) string
 	// UserLink can optionally return the link that opens a chat with a character and the
 	// color of its name. [user] and [icon] tags get this link plus a 🏠 link to the profile.
@@ -67,6 +67,8 @@ type Result struct {
 	Plain string
 	// PreviewLinks are the http(s) links that clients may show previews for.
 	PreviewLinks []string
+	// Mentions are the Matrix user IDs returned by Options.UserMention.
+	Mentions []string
 	// HiddenPreviews is the number of links that shouldn't get a preview (see Options.NoPreview).
 	HiddenPreviews int
 	// HasFormatting is true if the HTML output differs meaningfully from the plain text.
@@ -253,6 +255,7 @@ func isSafeURL(u string) bool {
 type renderer struct {
 	opts          Options
 	previewLinks  []string
+	mentions      []string
 	hiddenPreview int
 	html          strings.Builder
 	plain         strings.Builder
@@ -360,56 +363,57 @@ func coloredName(name, color string) string {
 	return label
 }
 
-// profileLink writes the 🏠 link to a character's profile.
-func (r *renderer) profileLink(name string) {
-	if r.opts.ProfileURL == nil {
-		return
-	}
-	closeLink := r.link(r.opts.ProfileURL(name))
-	r.html.WriteString("🏠")
-	closeLink()
-}
-
-// userLink renders a [user] tag: the name linked to the chat with the character, then a 🏠 link to the profile.
-func (r *renderer) userLink(name string) {
-	name = strings.TrimSpace(name)
+// characterLinks renders [user] and [icon] tags: the label (name or avatar) linked to the
+// character's profile, followed by a 💬 link that opens the chat with the character.
+//
+// Both links are wrapped in <code>: Element replaces matrix.to links with pills (which hides
+// the label) and generates link previews, but does neither for links inside code.
+func (r *renderer) characterLinks(name, label string) {
 	r.hasFormatting = true
 	r.plain.WriteString(name)
 	if r.opts.UserMention != nil {
 		if mxid := r.opts.UserMention(name); mxid != "" {
-			fmt.Fprintf(&r.html, `<a href="https://matrix.to/#/%s">%s</a>`, html.EscapeString(mxid), html.EscapeString(name))
-			r.profileLink(name)
-			return
+			r.mentions = append(r.mentions, mxid)
 		}
 	}
-	var href, color string
+	var chat, profile string
 	if r.opts.UserLink != nil {
-		href, color = r.opts.UserLink(name)
+		chat, _ = r.opts.UserLink(name)
 	}
-	if href != "" {
-		closeLink := r.link(href)
-		r.html.WriteString(coloredName(name, color))
-		closeLink()
+	if r.opts.ProfileURL != nil {
+		profile = r.opts.ProfileURL(name)
+	}
+	if chat == "" && profile == "" {
+		r.html.WriteString(label)
+		return
+	}
+	r.html.WriteString("<code>")
+	if profile != "" {
+		r.hiddenPreview++
+		fmt.Fprintf(&r.html, `<a href="%s">%s</a>`, html.EscapeString(profile), label)
 	} else {
-		r.html.WriteString(coloredName(name, color))
+		r.html.WriteString(label)
 	}
-	r.profileLink(name)
+	if chat != "" {
+		fmt.Fprintf(&r.html, ` <a href="%s">💬</a>`, html.EscapeString(chat))
+	}
+	r.html.WriteString("</code>")
 }
 
-// icon renders an [icon] tag: the avatar, then a 💬 link to the chat and a 🏠 link to the profile.
-func (r *renderer) icon(name, mxc string) {
-	r.hasFormatting = true
-	r.plain.WriteString(name)
-	fmt.Fprintf(&r.html, `<img src="%s" alt="%s" title="%s" width="%d" height="%d">`,
-		html.EscapeString(mxc), html.EscapeString(name), html.EscapeString(name), iconSize, iconSize)
+// userLink renders a [user] tag.
+func (r *renderer) userLink(name string) {
+	name = strings.TrimSpace(name)
+	var color string
 	if r.opts.UserLink != nil {
-		if href, _ := r.opts.UserLink(name); href != "" {
-			closeLink := r.link(href)
-			r.html.WriteString("💬")
-			closeLink()
-		}
+		_, color = r.opts.UserLink(name)
 	}
-	r.profileLink(name)
+	r.characterLinks(name, coloredName(name, color))
+}
+
+// icon renders an [icon] tag with the avatar image.
+func (r *renderer) icon(name, mxc string) {
+	r.characterLinks(name, fmt.Sprintf(`<img src="%s" alt="%s" title="%s" width="%d" height="%d">`,
+		html.EscapeString(mxc), html.EscapeString(name), html.EscapeString(name), iconSize, iconSize))
 }
 
 // image writes an inline image.
@@ -565,8 +569,29 @@ func ToHTML(input string, opts Options) Result {
 		HasFormatting: r.hasFormatting,
 
 		PreviewLinks:   r.previewLinks,
+		Mentions:       r.mentions,
 		HiddenPreviews: r.hiddenPreview,
 	}
+}
+
+// OnlyEIcons returns the eicon names if the text consists of nothing but [eicon] tags
+// (and whitespace between them).
+func OnlyEIcons(input string) ([]string, bool) {
+	var names []string
+	for _, n := range parse(input).children {
+		switch {
+		case n.tag == "eicon":
+			name := strings.TrimSpace(nodeText(n))
+			if name == "" {
+				return nil, false
+			}
+			names = append(names, name)
+		case n.tag == "" && n.children == nil && strings.TrimSpace(n.text) == "":
+		default:
+			return nil, false
+		}
+	}
+	return names, len(names) > 0
 }
 
 // ToPlain strips all BBCode tags.

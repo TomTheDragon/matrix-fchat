@@ -33,6 +33,7 @@ type FChatConnector struct {
 
 	images        imageCache
 	searchOptions searchOptionsCache
+	profiles      profileFetcher
 }
 
 var (
@@ -64,6 +65,7 @@ func (fc *FChatConnector) userAgent() string {
 }
 
 func (fc *FChatConnector) Start(ctx context.Context) error {
+	fc.startGhostCleanup()
 	return nil
 }
 

@@ -35,7 +35,7 @@ func (c *FChatClient) makeResolveResponse(ctx context.Context, userID networkid.
 	resp := &bridgev2.ResolveIdentifierResponse{
 		Ghost:    ghost,
 		UserID:   userID,
-		UserInfo: c.Main.makeUserInfo(name),
+		UserInfo: c.userInfo(name),
 	}
 	if createChat {
 		resp.Chat = &bridgev2.CreateChatResponse{
