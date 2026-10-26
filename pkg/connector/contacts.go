@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -129,17 +130,7 @@ func (c *FChatClient) createFriendDM(ctx context.Context, name string) bool {
 	queued := false
 	if portal == nil || portal.MXID == "" {
 		c.log.Debug().Str("friend", name).Msg("Creating DM room for friend")
-		c.Main.Bridge.QueueRemoteEvent(c.UserLogin, &simplevent.ChatResync{
-			EventMeta: simplevent.EventMeta{
-				Type:         bridgev2.RemoteEventChatResync,
-				PortalKey:    portalKey,
-				CreatePortal: true,
-				LogContext: func(lc zerolog.Context) zerolog.Context {
-					return lc.Str("friend", name)
-				},
-			},
-			ChatInfo: c.dmChatInfo(userID),
-		})
+		c.queueDMCreation(name)
 		queued = true
 	}
 	c.metaLock.Lock()
@@ -153,6 +144,23 @@ func (c *FChatClient) createFriendDM(ctx context.Context, name string) bool {
 		c.log.Err(err).Msg("Failed to save login after creating friend DM")
 	}
 	return queued
+}
+
+// queueDMCreation makes the bridge create the DM room with a character.
+func (c *FChatClient) queueDMCreation(name string) {
+	userID := makeUserID(name)
+	c.rememberName(name)
+	c.Main.Bridge.QueueRemoteEvent(c.UserLogin, &simplevent.ChatResync{
+		EventMeta: simplevent.EventMeta{
+			Type:         bridgev2.RemoteEventChatResync,
+			PortalKey:    makeDMPortalKey(name, c.UserLogin.ID),
+			CreatePortal: true,
+			LogContext: func(lc zerolog.Context) zerolog.Context {
+				return lc.Str("dm_with", name)
+			},
+		},
+		ChatInfo: c.dmChatInfo(userID),
+	})
 }
 
 // updateContactList adds or removes a character after a realtime notification from the server.
@@ -172,9 +180,12 @@ func (c *FChatClient) updateContactList(list map[networkid.UserID]string, name s
 type contactEntry struct {
 	ID        networkid.UserID
 	Name      string
+	Gender    string
 	Status    fchat.Status
 	StatusMsg string
 	AvatarMXC string
+	// ChatLink opens the DM room with the character.
+	ChatLink string
 }
 
 // contactEntries returns the entries of a list matching the filter, online characters first.
@@ -189,6 +200,7 @@ func (c *FChatClient) contactEntries(list map[networkid.UserID]string, filter st
 		if info, ok := c.characters[userID]; ok && info.Status != "" {
 			entry.Status = info.Status
 			entry.StatusMsg = info.StatusMsg
+			entry.Gender = info.Gender
 		}
 		entries = append(entries, entry)
 	}
@@ -210,7 +222,8 @@ func (c *FChatClient) contactEntries(list map[networkid.UserID]string, filter st
 const avatarWorkers = 8
 
 // loadAvatars makes sure the ghosts of the entries have their avatars uploaded to Matrix
-// and stores the mxc:// URIs in the entries.
+// and stores the mxc:// URIs in the entries. It also fills in the links, and the genders of
+// offline characters from the ghosts (the gender is only known while a character is online).
 func (c *FChatClient) loadAvatars(ctx context.Context, entries []*contactEntry) {
 	work := make(chan *contactEntry)
 	var wg sync.WaitGroup
@@ -227,14 +240,35 @@ func (c *FChatClient) loadAvatars(ctx context.Context, entries []*contactEntry) 
 				// Doesn't download anything if the avatar is already up to date.
 				ghost.UpdateInfo(ctx, c.Main.makeUserInfo(entry.Name))
 				entry.AvatarMXC = string(ghost.AvatarMXC)
+				c.syncGhostGender(ctx, ghost, entry)
 			}
 		}()
 	}
 	for _, entry := range entries {
+		entry.ChatLink = c.dmLink(entry.Name)
 		work <- entry
 	}
 	close(work)
 	wg.Wait()
+}
+
+// syncGhostGender stores the gender of an online character in the ghost metadata,
+// or takes the stored gender for an offline character.
+func (c *FChatClient) syncGhostGender(ctx context.Context, ghost *bridgev2.Ghost, entry *contactEntry) {
+	meta, ok := ghost.Metadata.(*GhostMetadata)
+	if !ok {
+		return
+	}
+	if entry.Gender == "" {
+		entry.Gender = meta.Gender
+		return
+	}
+	if meta.Gender != entry.Gender {
+		meta.Gender = entry.Gender
+		if err := c.Main.Bridge.DB.Ghost.Update(ctx, ghost.Ghost); err != nil {
+			c.log.Err(err).Str("character", entry.Name).Msg("Failed to save ghost gender")
+		}
+	}
 }
 
 var statusIcons = map[fchat.Status]string{
@@ -267,15 +301,22 @@ func (e *contactEntry) statusText() string {
 
 const avatarSize = 24
 
-// renderContactList renders the list as a notice with inline avatars.
-func (fc *FChatConnector) renderContactList(title string, entries []*contactEntry, total int) *event.MessageEventContent {
-	online := 0
-	for _, entry := range entries {
-		if entry.Status != fchat.StatusOffline {
-			online++
-		}
+// renderName renders the name of a character in its F-Chat gender color, linked to the chat with it.
+func renderName(name, gender, link string) string {
+	out := "<strong>" + html.EscapeString(name) + "</strong>"
+	if color := genderColor(gender); color != "" {
+		out = fmt.Sprintf(`<font color="%s" data-mx-color="%s">%s</font>`, color, color, out)
 	}
-	header := fmt.Sprintf("%s (%d, %d online)", title, len(entries), online)
+	if link != "" {
+		out = fmt.Sprintf(`<a href="%s">%s</a>`, html.EscapeString(link), out)
+	}
+	return out
+}
+
+// renderContactList renders the list as a notice with inline avatars.
+// total is the number of matching entries, online the number of them that are online.
+func (fc *FChatConnector) renderContactList(title string, entries []*contactEntry, total, online int, usage string) *event.MessageEventContent {
+	header := fmt.Sprintf("%s (%d, %d online)", title, total, online)
 	if total > len(entries) {
 		header = fmt.Sprintf("%s (showing %d of %d, %d online)", title, len(entries), total, online)
 	}
@@ -285,20 +326,26 @@ func (fc *FChatConnector) renderContactList(title string, entries []*contactEntr
 	fmt.Fprintf(&htmlOut, "<p>%s:</p>\n<ul>\n", html.EscapeString(header))
 	for _, entry := range entries {
 		status := entry.statusText()
+		profile := fchat.ProfileURL(fc.Config.SiteURL, entry.Name)
 		fmt.Fprintf(&plain, "* %s – %s\n", entry.Name, status)
 		htmlOut.WriteString("<li>")
 		if entry.AvatarMXC != "" {
 			fmt.Fprintf(&htmlOut, `<img src="%s" alt="" title="%s" width="%d" height="%d"> `,
 				html.EscapeString(entry.AvatarMXC), html.EscapeString(entry.Name), avatarSize, avatarSize)
 		}
-		fmt.Fprintf(&htmlOut, `<a href="%s"><strong>%s</strong></a> – %s</li>`+"\n",
-			html.EscapeString(fchat.ProfileURL(fc.Config.SiteURL, entry.Name)),
-			html.EscapeString(entry.Name), html.EscapeString(status))
+		fmt.Fprintf(&htmlOut, `%s <a href="%s" title="F-List profile">🔗</a> – %s</li>`+"\n",
+			renderName(entry.Name, entry.Gender, entry.ChatLink), html.EscapeString(profile), html.EscapeString(status))
 	}
 	htmlOut.WriteString("</ul>\n")
 	startChat := fc.Bridge.Config.CommandPrefix + " start-chat <name>"
 	plain.WriteString("\nStart a private chat with `" + startChat + "`")
-	fmt.Fprintf(&htmlOut, "<p>Start a private chat with <code>%s</code></p>", html.EscapeString(startChat))
+	fmt.Fprintf(&htmlOut, "<p>Click a name to open the private chat, 🔗 opens the F-List profile. "+
+		"You can also use <code>%s</code>.", html.EscapeString(startChat))
+	if total > len(entries) {
+		plain.WriteString("\nShow more with `" + usage + "`")
+		fmt.Fprintf(&htmlOut, "<br>Show more with <code>%s</code>.", html.EscapeString(usage))
+	}
+	htmlOut.WriteString("</p>")
 	return &event.MessageEventContent{
 		MsgType:       event.MsgNotice,
 		Body:          plain.String(),
@@ -308,17 +355,40 @@ func (fc *FChatConnector) renderContactList(title string, entries []*contactEntr
 	}
 }
 
-const maxListedContacts = 100
+const (
+	defaultListedContacts = 10
+	maxListedContacts     = 100
+)
+
+// parseListArgs parses "[filter] [count]". A "*" as filter means no filter. The count
+// is only recognized after a filter, because character names can be numbers.
+func parseListArgs(args []string) (filter string, count int, err error) {
+	count = defaultListedContacts
+	if len(args) >= 2 {
+		if n, convErr := strconv.Atoi(args[len(args)-1]); convErr == nil {
+			if n < 1 {
+				return "", 0, fmt.Errorf("the number of entries must be at least 1")
+			}
+			count = min(n, maxListedContacts)
+			args = args[:len(args)-1]
+		}
+	}
+	filter = strings.ToLower(strings.TrimSpace(strings.Join(args, " ")))
+	if filter == "*" {
+		filter = ""
+	}
+	return filter, count, nil
+}
 
 func (fc *FChatConnector) cmdBookmarks(ce *commands.Event) {
-	fc.listContacts(ce, "Your bookmarks", func(c *FChatClient) map[networkid.UserID]string { return c.bookmarks })
+	fc.listContacts(ce, "bookmarks", "Your bookmarks", func(c *FChatClient) map[networkid.UserID]string { return c.bookmarks })
 }
 
 func (fc *FChatConnector) cmdFriends(ce *commands.Event) {
-	fc.listContacts(ce, "Your friends", func(c *FChatClient) map[networkid.UserID]string { return c.friends })
+	fc.listContacts(ce, "friends", "Your friends", func(c *FChatClient) map[networkid.UserID]string { return c.friends })
 }
 
-func (fc *FChatConnector) listContacts(ce *commands.Event, title string, getList func(*FChatClient) map[networkid.UserID]string) {
+func (fc *FChatConnector) listContacts(ce *commands.Event, command, title string, getList func(*FChatClient) map[networkid.UserID]string) {
 	client := fc.clientFor(ce)
 	if client == nil {
 		return
@@ -333,7 +403,11 @@ func (fc *FChatConnector) listContacts(ce *commands.Event, title string, getList
 		}
 		ce.Log.Warn().Err(err).Msg("Failed to refresh contact lists, showing cached lists")
 	}
-	filter := strings.ToLower(strings.TrimSpace(ce.RawArgs))
+	filter, count, err := parseListArgs(ce.Args)
+	if err != nil {
+		ce.Reply("%v", err)
+		return
+	}
 	entries := client.contactEntries(getList(client), filter)
 	if len(entries) == 0 {
 		if filter != "" {
@@ -343,13 +417,23 @@ func (fc *FChatConnector) listContacts(ce *commands.Event, title string, getList
 		}
 		return
 	}
-	total := len(entries)
-	if total > maxListedContacts {
-		entries = entries[:maxListedContacts]
+	total, online := len(entries), 0
+	for _, entry := range entries {
+		if entry.Status != fchat.StatusOffline {
+			online++
+		}
+	}
+	if total > count {
+		entries = entries[:count]
 	}
 	client.loadAvatars(ce.Ctx, entries)
-	content := fc.renderContactList(title, entries, total)
-	_, err := ce.Bot.SendMessage(ce.Ctx, ce.OrigRoomID, event.EventMessage, &event.Content{Parsed: content}, nil)
+	filterArg := filter
+	if filterArg == "" {
+		filterArg = "*"
+	}
+	usage := fmt.Sprintf("%s %s %s %d", fc.Bridge.Config.CommandPrefix, command, filterArg, min(total, maxListedContacts))
+	content := fc.renderContactList(title, entries, total, online, usage)
+	_, err = ce.Bot.SendMessage(ce.Ctx, ce.OrigRoomID, event.EventMessage, &event.Content{Parsed: content}, nil)
 	if err != nil {
 		ce.Log.Err(err).Msg("Failed to send contact list")
 	}

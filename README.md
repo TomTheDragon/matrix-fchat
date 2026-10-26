@@ -10,6 +10,8 @@ built on [mautrix-go bridgev2](https://pkg.go.dev/maunium.net/go/mautrix/bridgev
 | Public channels and private rooms (ADH-…)       | One Matrix room per channel and login                                    |
 | Private messages (PRI)                          | DM rooms, started with `start-chat <character>`                          |
 | BBCode (b, i, u, s, sup, sub, color, url, user, icon, eicon, spoiler, noparse, session) | HTML formatting, in both directions           |
+| `[icon]`, `[eicon]` and emoticons (`:heart:`, `:lif-smile:`, …) | Inline images (uploaded to Matrix once and cached)        |
+| `[user]` names                                  | Clickable name in the F-Chat gender color, opens the private chat        |
 | `/me` actions                                   | `m.emote`                                                                |
 | Roleplay ads (LRP)                              | Message with an `[Ad]` prefix; send with `ad <text>`                     |
 | Dice rolls / bottle spins (RLL)                 | Notice; send with `roll 1d20` or `bottle`                                |
@@ -21,7 +23,7 @@ built on [mautrix-go bridgev2](https://pkg.go.dev/maunium.net/go/mautrix/bridgev
 | Invites, system messages, broadcasts, notes     | Notices in the management room                                           |
 | Ignore list                                     | Messages from ignored characters are dropped                             |
 | Friends                                         | A DM room per friend (`create_friend_dms`), contact list, `friends` command |
-| Bookmarks                                       | Contact list; `bookmarks` lists them with avatars and online status      |
+| Bookmarks                                       | Contact list; `bookmarks` lists them with avatars, gender colors and online status |
 | Avatars                                         | Ghost avatars from static.f-list.net                                     |
 | Files from Matrix                               | Sent as a link if `public_media` is enabled in the bridge config         |
 
@@ -35,6 +37,9 @@ F-Chat messages have no IDs. Because of that, there are **no edits, deletions, r
 replies or threads**, and no message history (backfill). The server doesn't confirm successful
 messages; errors (such as flood control or "character not found") are matched to the sent
 message using a short time window (`error_wait_ms`).
+
+Matrix clients choose the colors of member names themselves, so room members can't get their
+F-Chat gender colors. Names in lists and `[user]` tags in messages are colored instead.
 
 ## Building
 
@@ -67,6 +72,24 @@ The script builds with `-tags goolm` (a pure Go implementation of Olm), so `libo
    ```
 3. Start the bridge: `./matrix-fchat`
 
+### Join and chat links
+
+The `channels`, `rooms`, `friends` and `bookmarks` lists (and `[user]` names in messages) contain
+links that join a channel or open a private chat with one click. They're room aliases
+(`#fchat_open_…`) that the bridge creates when the homeserver asks for them, so the registration
+needs an alias namespace. The bridge adds it to `registration.yaml` automatically on startup (and
+logs a warning when it did); **restart the homeserver afterwards** so it reads the new registration:
+
+```yaml
+namespaces:
+    aliases:
+        - regex: ^#fchat_open_[a-z0-9_]+:your\.domain$
+          exclusive: true
+```
+
+Without the namespace, the links show an "alias not found" error; the `join` and `start-chat`
+commands still work.
+
 ## Docker
 
 Build the image:
@@ -89,8 +112,9 @@ All bridge files (config, registration, SQLite database) live in the `/data` vol
        type: sqlite3-fk-wal
        uri: file:/data/matrix-fchat.db?_txlock=immediate
    ```
-3. Run it again to generate `data/registration.yaml`, then add that to your homeserver.
-4. Start the bridge:
+3. Run it again to generate `data/registration.yaml`.
+4. Start the bridge (it adds the [alias namespace](#join-and-chat-links) to the registration on
+   the first start), then add `data/registration.yaml` to your homeserver:
    ```sh
    docker run -d --name matrix-fchat --restart unless-stopped -v "$(pwd)/data:/data" matrix-fchat
    ```
@@ -111,10 +135,10 @@ More commands (in portal rooms, use the `!fchat` prefix):
 |--------------------------------|------------------------------------------------------------------|
 | `join <name/ID>`               | Join a channel                                                   |
 | `leave [name/ID]`              | Leave a channel (without an argument: the current room)          |
-| `channels [filter]`            | List public channels                                             |
-| `rooms [filter]`               | List open private rooms                                          |
-| `bookmarks [filter]`           | List your bookmarks with avatars and online status               |
-| `friends [filter]`             | List your character's friends with avatars and online status     |
+| `channels [filter]`            | List public channels (click a name to join)                      |
+| `rooms [filter]`               | List open private rooms (click a name to join)                   |
+| `bookmarks [filter] [number]`  | List your bookmarks (10 by default, `*` = no filter, e.g. `bookmarks * 30`) |
+| `friends [filter] [number]`    | List your character's friends, like `bookmarks`                  |
 | `create-room <title>`          | Create a new private room                                        |
 | `status <status> [message]`    | Set your status (online, looking, busy, dnd, idle, away)         |
 | `roll <dice>` / `bottle`       | Roll dice / spin the bottle in the current channel               |

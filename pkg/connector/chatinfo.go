@@ -100,6 +100,11 @@ func (c *FChatClient) channelChatInfo(channel string, portal *bridgev2.Portal) *
 	info := &bridgev2.ChatInfo{
 		Name: ptrTo(title),
 		Type: ptrTo(database.RoomTypeDefault),
+		// Channels use the F-Chat icon, like the bot, the spaces and the management room.
+		Avatar: &bridgev2.Avatar{
+			ID:  networkid.AvatarID(NetworkIcon),
+			MXC: NetworkIcon,
+		},
 		ExtraUpdates: func(ctx context.Context, portal *bridgev2.Portal) bool {
 			meta := portal.Metadata.(*PortalMetadata)
 			if meta.Title != title {

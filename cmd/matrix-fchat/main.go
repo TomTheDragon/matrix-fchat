@@ -30,6 +30,8 @@ func main() {
 		if bot.Avatar == "" {
 			bot.ParsedAvatar = connector.NetworkIcon.ParseOrIgnore()
 		}
+		// Links that join channels and open chats are room aliases that the bridge answers.
+		fc.SetupOpenLinks(m.RegistrationPath)
 	}
 	m.InitVersion(Tag, Commit, BuildTime)
 	fc.Version = m.Version

@@ -3,6 +3,7 @@ package connector
 import (
 	"cmp"
 	"fmt"
+	"html"
 	"slices"
 	"strings"
 
@@ -269,6 +270,53 @@ func matchesFilter(filter string, values ...string) bool {
 
 const maxListedChannels = 50
 
+// channelListEntry is a public channel or open private room in a channel list.
+type channelListEntry struct {
+	ID         string
+	Title      string
+	Characters int
+	Extra      string
+}
+
+// sendChannelList sends a channel list where every entry links to joining the channel.
+func (fc *FChatConnector) sendChannelList(ce *commands.Event, client *FChatClient, header string, entries []channelListEntry, joinHint string) {
+	var plain, htmlOut strings.Builder
+	plain.WriteString(header + ":\n\n")
+	fmt.Fprintf(&htmlOut, "<p>%s:</p>\n<ul>\n", html.EscapeString(header))
+	for _, entry := range entries {
+		fmt.Fprintf(&plain, "* %s", entry.Title)
+		if entry.ID != entry.Title {
+			fmt.Fprintf(&plain, " – %s", entry.ID)
+		}
+		fmt.Fprintf(&plain, " (%d characters%s)\n", entry.Characters, entry.Extra)
+
+		title := "<strong>" + html.EscapeString(entry.Title) + "</strong>"
+		if link := client.channelLink(entry.ID); link != "" {
+			title = fmt.Sprintf(`<a href="%s">%s</a>`, html.EscapeString(link), title)
+		}
+		htmlOut.WriteString("<li>" + title)
+		if entry.ID != entry.Title {
+			fmt.Fprintf(&htmlOut, " – <code>%s</code>", html.EscapeString(entry.ID))
+		}
+		fmt.Fprintf(&htmlOut, " (%d characters%s)</li>\n", entry.Characters, html.EscapeString(entry.Extra))
+	}
+	htmlOut.WriteString("</ul>\n")
+	joinHint = strings.ReplaceAll(joinHint, "$cmdprefix", fc.Bridge.Config.CommandPrefix)
+	plain.WriteString("\nJoin with `" + joinHint + "`")
+	fmt.Fprintf(&htmlOut, "<p>Click a name to join, or use <code>%s</code>.</p>", html.EscapeString(joinHint))
+	content := &event.MessageEventContent{
+		MsgType:       event.MsgNotice,
+		Body:          plain.String(),
+		Format:        event.FormatHTML,
+		FormattedBody: htmlOut.String(),
+		Mentions:      &event.Mentions{},
+	}
+	_, err := ce.Bot.SendMessage(ce.Ctx, ce.OrigRoomID, event.EventMessage, &event.Content{Parsed: content}, nil)
+	if err != nil {
+		ce.Log.Err(err).Msg("Failed to send channel list")
+	}
+}
+
 func (fc *FChatConnector) cmdChannels(ce *commands.Event) {
 	client := fc.connectedClientFor(ce)
 	if client == nil {
@@ -290,18 +338,16 @@ func (fc *FChatConnector) cmdChannels(ce *commands.Event) {
 		ce.Reply("No channels found")
 		return
 	}
-	var out strings.Builder
-	fmt.Fprintf(&out, "Found %d public channels", len(channels))
+	header := fmt.Sprintf("Found %d public channels", len(channels))
 	if len(channels) > maxListedChannels {
-		fmt.Fprintf(&out, " (showing the %d largest)", maxListedChannels)
+		header += fmt.Sprintf(" (showing the %d largest)", maxListedChannels)
 		channels = channels[:maxListedChannels]
 	}
-	out.WriteString(":\n\n")
-	for _, ch := range channels {
-		fmt.Fprintf(&out, "* **%s** (%d characters, mode: %s)\n", ch.Name, ch.Characters, ch.Mode)
+	entries := make([]channelListEntry, len(channels))
+	for i, ch := range channels {
+		entries[i] = channelListEntry{ID: ch.Name, Title: ch.Name, Characters: ch.Characters, Extra: fmt.Sprintf(", mode: %s", ch.Mode)}
 	}
-	out.WriteString("\nJoin with `$cmdprefix join <name>`")
-	ce.Reply(out.String())
+	fc.sendChannelList(ce, client, header, entries, "$cmdprefix join <name>")
 }
 
 func (fc *FChatConnector) cmdRooms(ce *commands.Event) {
@@ -325,18 +371,16 @@ func (fc *FChatConnector) cmdRooms(ce *commands.Event) {
 		ce.Reply("No rooms found")
 		return
 	}
-	var out strings.Builder
-	fmt.Fprintf(&out, "Found %d open private rooms", len(rooms))
+	header := fmt.Sprintf("Found %d open private rooms", len(rooms))
 	if len(rooms) > maxListedChannels {
-		fmt.Fprintf(&out, " (showing the %d largest)", maxListedChannels)
+		header += fmt.Sprintf(" (showing the %d largest)", maxListedChannels)
 		rooms = rooms[:maxListedChannels]
 	}
-	out.WriteString(":\n\n")
-	for _, room := range rooms {
-		fmt.Fprintf(&out, "* **%s** – `%s` (%d characters)\n", bbcode.DecodeEntities(room.Title), room.Name, room.Characters)
+	entries := make([]channelListEntry, len(rooms))
+	for i, room := range rooms {
+		entries[i] = channelListEntry{ID: room.Name, Title: bbcode.DecodeEntities(room.Title), Characters: room.Characters}
 	}
-	out.WriteString("\nJoin with `$cmdprefix join <ID>`")
-	ce.Reply(out.String())
+	fc.sendChannelList(ce, client, header, entries, "$cmdprefix join <ID>")
 }
 
 func (fc *FChatConnector) cmdCreateRoom(ce *commands.Event) {
@@ -436,8 +480,7 @@ func (fc *FChatConnector) cmdAd(ce *commands.Event) {
 	}
 	// The server doesn't echo ads back to the sender, so bridge it ourselves.
 	if fc.Config.BridgeAds {
-		content := client.convertText(text, event.MsgText, "[Ad] ")
-		client.queueMessage(ce.Portal.PortalKey, client.meta().Character, content, false)
+		client.queueMessage(ce.Portal.PortalKey, client.meta().Character, client.textMessage(text, event.MsgText, "[Ad] "), false)
 	} else {
 		ce.React("✅")
 	}

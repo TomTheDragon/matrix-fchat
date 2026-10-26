@@ -150,26 +150,49 @@ func (c *FChatClient) handleCommand(cmd fchat.RawCommand) {
 	}
 }
 
-func (c *FChatClient) bbcodeOptions() bbcode.Options {
+func (c *FChatClient) bbcodeOptions(ctx context.Context) bbcode.Options {
 	ownName := c.meta().Character
+	staticURL := c.Main.Config.StaticURL
 	return bbcode.Options{
 		ProfileURL: func(name string) string {
 			return fchat.ProfileURL(c.Main.Config.SiteURL, name)
 		},
 		EIconURL: func(name string) string {
-			return fchat.EIconURL(c.Main.Config.StaticURL, name)
+			return fchat.EIconURL(staticURL, name)
 		},
 		UserMention: func(name string) string {
 			if strings.EqualFold(name, ownName) {
 				return string(c.UserLogin.UserMXID)
 			}
-			return string(c.Main.Bridge.Matrix.FormatGhostMXID(makeUserID(name)))
+			return ""
+		},
+		UserLink: func(name string) (string, string) {
+			if !isValidCharacterName(name) {
+				return "", ""
+			}
+			return c.dmLink(name), genderColor(c.characterGender(ctx, makeUserID(name)))
+		},
+		AvatarImage: func(name string) string {
+			if !isValidCharacterName(name) {
+				return ""
+			}
+			return string(c.avatarMXC(ctx, name))
+		},
+		EIconImage: func(name string) string {
+			if name == "" {
+				return ""
+			}
+			return string(c.Main.imageMXC(ctx, fchat.EIconURL(staticURL, name)))
+		},
+		EmoticonImage: func(name string) string {
+			return string(c.Main.imageMXC(ctx, fchat.EmoticonURL(staticURL, name)))
 		},
 	}
 }
 
 // convertText converts an F-Chat message text into Matrix message content.
-func (c *FChatClient) convertText(text string, msgType event.MessageType, prefix string) *event.MessageEventContent {
+// It may upload images, so it should run in the portal's event handling, not in the connection loop.
+func (c *FChatClient) convertText(ctx context.Context, text string, msgType event.MessageType, prefix string) *event.MessageEventContent {
 	text = bbcode.DecodeEntities(text)
 	if msgType == event.MsgText {
 		// "/me" actions are sent as normal messages with a prefix.
@@ -181,7 +204,7 @@ func (c *FChatClient) convertText(text string, msgType event.MessageType, prefix
 			text = text[3:]
 		}
 	}
-	res := bbcode.ToHTML(text, c.bbcodeOptions())
+	res := bbcode.ToHTML(text, c.bbcodeOptions(ctx))
 	content := &event.MessageEventContent{
 		MsgType: msgType,
 		Body:    prefix + res.Plain,
@@ -204,10 +227,20 @@ func (c *FChatClient) convertText(text string, msgType event.MessageType, prefix
 	return content
 }
 
-func (c *FChatClient) queueMessage(portalKey networkid.PortalKey, senderName string, content *event.MessageEventContent, createPortal bool) {
+// messageConverter creates the Matrix content of a message when the portal handles it.
+type messageConverter func(ctx context.Context) *event.MessageEventContent
+
+// textMessage returns a converter for an F-Chat message text.
+func (c *FChatClient) textMessage(text string, msgType event.MessageType, prefix string) messageConverter {
+	return func(ctx context.Context) *event.MessageEventContent {
+		return c.convertText(ctx, text, msgType, prefix)
+	}
+}
+
+func (c *FChatClient) queueMessage(portalKey networkid.PortalKey, senderName string, convert messageConverter, createPortal bool) {
 	sender := c.sender(senderName)
 	msgID := makeMessageID(sender.Sender)
-	c.Main.Bridge.QueueRemoteEvent(c.UserLogin, &simplevent.PreConvertedMessage{
+	c.Main.Bridge.QueueRemoteEvent(c.UserLogin, &simplevent.Message[messageConverter]{
 		EventMeta: simplevent.EventMeta{
 			Type:         bridgev2.RemoteEventMessage,
 			PortalKey:    portalKey,
@@ -218,12 +251,15 @@ func (c *FChatClient) queueMessage(portalKey networkid.PortalKey, senderName str
 				return lc.Str("message_id", string(msgID)).Str("sender", senderName)
 			},
 		},
-		ID: msgID,
-		Data: &bridgev2.ConvertedMessage{
-			Parts: []*bridgev2.ConvertedMessagePart{{
-				Type:    event.EventMessage,
-				Content: content,
-			}},
+		ID:   msgID,
+		Data: convert,
+		ConvertMessageFunc: func(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, convert messageConverter) (*bridgev2.ConvertedMessage, error) {
+			return &bridgev2.ConvertedMessage{
+				Parts: []*bridgev2.ConvertedMessagePart{{
+					Type:    event.EventMessage,
+					Content: convert(ctx),
+				}},
+			}, nil
 		},
 	})
 }
@@ -256,8 +292,7 @@ func (c *FChatClient) handleChannelMessage(msg *fchat.ChannelMessage, isAd bool)
 	if isAd {
 		prefix = "[Ad] "
 	}
-	content := c.convertText(msg.Message, event.MsgText, prefix)
-	c.queueMessage(makeChannelPortalKey(msg.Channel, c.UserLogin.ID), msg.Character, content, false)
+	c.queueMessage(makeChannelPortalKey(msg.Channel, c.UserLogin.ID), msg.Character, c.textMessage(msg.Message, event.MsgText, prefix), false)
 }
 
 func (c *FChatClient) handlePrivateMessage(msg *fchat.PrivateMessage) {
@@ -267,8 +302,7 @@ func (c *FChatClient) handlePrivateMessage(msg *fchat.PrivateMessage) {
 		return
 	}
 	c.rememberName(msg.Character)
-	content := c.convertText(msg.Message, event.MsgText, "")
-	c.queueMessage(makeDMPortalKey(msg.Character, c.UserLogin.ID), msg.Character, content, true)
+	c.queueMessage(makeDMPortalKey(msg.Character, c.UserLogin.ID), msg.Character, c.textMessage(msg.Message, event.MsgText, ""), true)
 }
 
 func (c *FChatClient) handleRoll(roll *fchat.Roll) {
@@ -295,8 +329,7 @@ func (c *FChatClient) handleRoll(roll *fchat.Roll) {
 		return
 	}
 	c.rememberName(roll.Character)
-	content := c.convertText(roll.Message, event.MsgNotice, "🎲 ")
-	c.queueMessage(portalKey, roll.Character, content, createPortal)
+	c.queueMessage(portalKey, roll.Character, c.textMessage(roll.Message, event.MsgNotice, "🎲 "), createPortal)
 }
 
 func (c *FChatClient) handleTyping(typing *fchat.TypingRequest) {
@@ -683,9 +716,11 @@ func (c *FChatClient) handleStatus(sta *fchat.StatusChange) {
 	if statusMsg != "" {
 		text += ": " + statusMsg
 	}
-	content := c.convertText(text, event.MsgNotice, "")
-	content.Mentions = &event.Mentions{}
-	c.queueMessage(portal.PortalKey, sta.Character, content, false)
+	c.queueMessage(portal.PortalKey, sta.Character, func(ctx context.Context) *event.MessageEventContent {
+		content := c.convertText(ctx, text, event.MsgNotice, "")
+		content.Mentions = &event.Mentions{}
+		return content
+	}, false)
 }
 
 func (c *FChatClient) handleFriendList(frl *fchat.FriendList) {

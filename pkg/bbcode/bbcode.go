@@ -19,10 +19,44 @@ type Options struct {
 	ProfileURL func(name string) string
 	// EIconURL returns the image URL of an eicon.
 	EIconURL func(name string) string
-	// UserMention can optionally return a Matrix user ID to render [user] and
-	// [icon] tags as Matrix pills. If it returns "", a profile link is used.
+	// UserMention can optionally return a Matrix user ID to render a [user] tag
+	// as a Matrix pill (used to mention the Matrix user). If it returns "", UserLink is used.
 	UserMention func(name string) string
+	// UserLink can optionally return the link target and text color of a character name.
+	// If the link is "", ProfileURL is used.
+	UserLink func(name string) (href, color string)
+
+	// The image functions return the mxc:// URI of an image to show inline.
+	// If they're nil or return "", a text fallback is used.
+	AvatarImage   func(name string) string
+	EIconImage    func(name string) string
+	EmoticonImage func(name string) string
 }
+
+// Emoticons are the smileys that F-List replaces in texts, e.g. ":heart:".
+// The images are at static.f-list.net/images/smileys/<name>.png.
+var Emoticons = []string{
+	"heart", "cake",
+	"lif-angry", "lif-blush", "lif-cry", "lif-evil", "lif-gasp", "lif-happy", "lif-meh", "lif-neutral",
+	"lif-ooh", "lif-purr", "lif-roll", "lif-sad", "lif-sick", "lif-smile", "lif-whee", "lif-wink",
+	"lif-wtf", "lif-yawn",
+	"hex-smile", "hex-confuse", "hex-eek", "hex-mad", "hex-roll", "hex-wink", "hex-twist", "hex-sad",
+	"hex-grin", "hex-red", "hex-razz", "hex-yell",
+}
+
+var emoticonSet = func() map[string]bool {
+	set := make(map[string]bool, len(Emoticons))
+	for _, name := range Emoticons {
+		set[name] = true
+	}
+	return set
+}()
+
+// Display sizes of inline images, matching the F-Chat client.
+const (
+	iconSize     = 50
+	emoticonSize = 21
+)
 
 // Result is the output of a conversion.
 type Result struct {
@@ -240,6 +274,46 @@ func (r *renderer) text(s string) {
 	r.plain.WriteString(s)
 }
 
+// richText renders a text node and replaces emoticons like ":heart:" with images.
+func (r *renderer) richText(s string) {
+	if r.opts.EmoticonImage == nil {
+		r.text(s)
+		return
+	}
+	for {
+		start := strings.IndexByte(s, ':')
+		if start < 0 {
+			break
+		}
+		end := strings.IndexByte(s[start+1:], ':')
+		if end < 0 {
+			break
+		}
+		end += start + 1
+		code := s[start : end+1]
+		name := strings.ToLower(code[1 : len(code)-1])
+		if !emoticonSet[name] {
+			// The closing colon might start the next emoticon.
+			r.text(s[:end])
+			s = s[end:]
+			continue
+		}
+		mxc := r.opts.EmoticonImage(name)
+		if mxc == "" {
+			r.text(s[:end+1])
+			s = s[end+1:]
+			continue
+		}
+		r.text(s[:start])
+		r.hasFormatting = true
+		fmt.Fprintf(&r.html, `<img data-mx-emoticon src="%s" alt="%s" title="%s" height="%d">`,
+			html.EscapeString(mxc), html.EscapeString(code), html.EscapeString(code), emoticonSize)
+		r.plain.WriteString(code)
+		s = s[end+1:]
+	}
+	r.text(s)
+}
+
 func (r *renderer) wrap(open, closeTag string, n *node) {
 	r.hasFormatting = true
 	r.html.WriteString(open)
@@ -253,28 +327,56 @@ func (r *renderer) children(n *node) {
 	}
 }
 
-func (r *renderer) userLink(name, prefix string) {
+// userHref returns the link target and color for a character name.
+func (r *renderer) userHref(name string) (href, color string) {
+	if r.opts.UserLink != nil {
+		href, color = r.opts.UserLink(name)
+	}
+	if href == "" && r.opts.ProfileURL != nil {
+		href = r.opts.ProfileURL(name)
+	}
+	return
+}
+
+func (r *renderer) userLink(name string) {
 	name = strings.TrimSpace(name)
 	r.hasFormatting = true
+	r.plain.WriteString(name)
 	if r.opts.UserMention != nil {
 		if mxid := r.opts.UserMention(name); mxid != "" {
 			fmt.Fprintf(&r.html, `<a href="https://matrix.to/#/%s">%s</a>`, html.EscapeString(mxid), html.EscapeString(name))
-			r.plain.WriteString(prefix + name)
 			return
 		}
 	}
-	if r.opts.ProfileURL != nil {
-		fmt.Fprintf(&r.html, `<a href="%s">%s</a>`, html.EscapeString(r.opts.ProfileURL(name)), html.EscapeString(prefix+name))
-	} else {
-		r.html.WriteString(html.EscapeString(prefix + name))
+	href, color := r.userHref(name)
+	label := html.EscapeString(name)
+	if color != "" {
+		label = fmt.Sprintf(`<font color="%s" data-mx-color="%s">%s</font>`, html.EscapeString(color), html.EscapeString(color), label)
 	}
-	r.plain.WriteString(prefix + name)
+	if href != "" {
+		fmt.Fprintf(&r.html, `<a href="%s">%s</a>`, html.EscapeString(href), label)
+	} else {
+		r.html.WriteString(label)
+	}
+}
+
+// image writes an inline image, optionally wrapped in a link.
+func (r *renderer) image(mxc, alt, href string, size int) {
+	r.hasFormatting = true
+	if href != "" {
+		fmt.Fprintf(&r.html, `<a href="%s">`, html.EscapeString(href))
+	}
+	fmt.Fprintf(&r.html, `<img src="%s" alt="%s" title="%s" width="%d" height="%d">`,
+		html.EscapeString(mxc), html.EscapeString(alt), html.EscapeString(alt), size, size)
+	if href != "" {
+		r.html.WriteString("</a>")
+	}
 }
 
 func (r *renderer) render(n *node) {
 	if n.tag == "" {
 		if n.children == nil {
-			r.text(n.text)
+			r.richText(n.text)
 		} else {
 			r.children(n)
 		}
@@ -356,12 +458,28 @@ func (r *renderer) render(n *node) {
 			r.plain.WriteString(label + " (" + target + ")")
 		}
 	case "user":
-		r.userLink(nodeText(n), "")
+		r.userLink(nodeText(n))
 	case "icon":
-		r.userLink(nodeText(n), "")
+		name := strings.TrimSpace(nodeText(n))
+		if r.opts.AvatarImage != nil {
+			if mxc := r.opts.AvatarImage(name); mxc != "" {
+				href, _ := r.userHref(name)
+				r.image(mxc, name, href, iconSize)
+				r.plain.WriteString(name)
+				return
+			}
+		}
+		r.userLink(name)
 	case "eicon":
 		name := strings.TrimSpace(nodeText(n))
 		r.hasFormatting = true
+		if r.opts.EIconImage != nil {
+			if mxc := r.opts.EIconImage(name); mxc != "" {
+				r.image(mxc, name, "", iconSize)
+				r.plain.WriteString(":" + name + ":")
+				return
+			}
+		}
 		if r.opts.EIconURL != nil {
 			fmt.Fprintf(&r.html, `<a href="%s">:%s:</a>`, html.EscapeString(r.opts.EIconURL(name)), html.EscapeString(name))
 		} else {

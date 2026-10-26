@@ -6,6 +6,7 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/rs/zerolog v1.35.1
 	go.mau.fi/util v0.11.0
+	gopkg.in/yaml.v3 v3.0.1
 	maunium.net/go/mautrix v0.32.0
 )
 
@@ -32,6 +33,5 @@ require (
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	maunium.net/go/mauflag v1.0.0 // indirect
 )

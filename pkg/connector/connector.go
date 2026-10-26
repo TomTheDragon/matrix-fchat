@@ -30,6 +30,8 @@ type FChatConnector struct {
 	API     *fchat.API
 	Tickets *fchat.TicketCache
 	HTTP    *http.Client
+
+	images imageCache
 }
 
 var (

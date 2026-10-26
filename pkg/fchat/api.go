@@ -200,6 +200,14 @@ func EIconURL(staticURL, name string) string {
 	return fmt.Sprintf("%s/images/eicon/%s.gif", strings.TrimRight(staticURL, "/"), url.PathEscape(strings.ToLower(name)))
 }
 
+// EmoticonURL returns the URL of an emoticon (smiley) image like "heart" or "lif-smile".
+func EmoticonURL(staticURL, name string) string {
+	if staticURL == "" {
+		staticURL = DefaultStaticURL
+	}
+	return fmt.Sprintf("%s/images/smileys/%s.png", strings.TrimRight(staticURL, "/"), url.PathEscape(strings.ToLower(name)))
+}
+
 // ProfileURL returns the URL of a character's profile page.
 func ProfileURL(siteURL, character string) string {
 	if siteURL == "" {
