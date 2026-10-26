@@ -60,6 +60,28 @@ func (fc *FChatConnector) commandHandlers() []commands.CommandHandler {
 			RequiresLogin: true,
 		},
 		&commands.FullHandler{
+			Func:    fc.cmdBookmarks,
+			Name:    "bookmarks",
+			Aliases: []string{"list-bookmarks"},
+			Help: commands.HelpMeta{
+				Section:     HelpSectionFChat,
+				Description: "List your F-List bookmarks with their avatars and online status.",
+				Args:        "[_filter_]",
+			},
+			RequiresLogin: true,
+		},
+		&commands.FullHandler{
+			Func:    fc.cmdFriends,
+			Name:    "friends",
+			Aliases: []string{"list-friends"},
+			Help: commands.HelpMeta{
+				Section:     HelpSectionFChat,
+				Description: "List the friends of your character with their avatars and online status.",
+				Args:        "[_filter_]",
+			},
+			RequiresLogin: true,
+		},
+		&commands.FullHandler{
 			Func: fc.cmdCreateRoom,
 			Name: "create-room",
 			Help: commands.HelpMeta{

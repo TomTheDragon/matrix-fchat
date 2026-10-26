@@ -207,3 +207,77 @@ func ProfileURL(siteURL, character string) string {
 	}
 	return fmt.Sprintf("%s/c/%s", strings.TrimRight(siteURL, "/"), url.PathEscape(character))
 }
+
+// FriendListEntry is a friendship between one of the account's characters and another character.
+type FriendListEntry struct {
+	Source     string `json:"source"`
+	Dest       string `json:"dest"`
+	LastOnline int64  `json:"last_online"`
+}
+
+// FriendBookmarkLists is the response of /json/api/friend-bookmark-lists.php.
+type FriendBookmarkLists struct {
+	Bookmarks []string          `json:"bookmarklist"`
+	Friends   []FriendListEntry `json:"friendlist"`
+	Error     string            `json:"error"`
+}
+
+// GetFriendsAndBookmarks requests the account's bookmarks and the friend lists of all its characters.
+// F-List asks clients not to poll this endpoint aggressively.
+func (api *API) GetFriendsAndBookmarks(ctx context.Context, account, ticket string) (*FriendBookmarkLists, error) {
+	const endpoint = "/json/api/friend-bookmark-lists.php"
+	// The list flags are checked for presence, not value.
+	form := url.Values{
+		"account":      {account},
+		"ticket":       {ticket},
+		"bookmarklist": {"true"},
+		"friendlist":   {"true"},
+	}
+	var resp FriendBookmarkLists
+	if err := api.post(ctx, endpoint, form, &resp); err != nil {
+		return nil, err
+	}
+	if resp.Error != "" {
+		return nil, &APIError{Endpoint: endpoint, Message: resp.Error}
+	}
+	return &resp, nil
+}
+
+// IsInvalidTicket returns whether the error says that the API ticket isn't valid (anymore).
+func IsInvalidTicket(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Message), "ticket")
+}
+
+// FriendsOf returns the friends of one character from a friend list. Both directions
+// are checked, because getApiTicket.php and the friend list endpoint name the fields differently.
+func FriendsOf(character string, entries []FriendListEntry) []string {
+	var friends []string
+	for _, entry := range entries {
+		switch {
+		case strings.EqualFold(entry.Source, character):
+			friends = append(friends, entry.Dest)
+		case strings.EqualFold(entry.Dest, character):
+			friends = append(friends, entry.Source)
+		}
+	}
+	return friends
+}
+
+// FriendEntries converts the friend list of a ticket response.
+func (tr *TicketResponse) FriendEntries() []FriendListEntry {
+	entries := make([]FriendListEntry, len(tr.Friends))
+	for i, friend := range tr.Friends {
+		entries[i] = FriendListEntry{Source: friend.SourceName, Dest: friend.DestName}
+	}
+	return entries
+}
+
+// BookmarkNames returns the names of the bookmarked characters in a ticket response.
+func (tr *TicketResponse) BookmarkNames() []string {
+	names := make([]string, len(tr.Bookmarks))
+	for i, bookmark := range tr.Bookmarks {
+		names[i] = bookmark.Name
+	}
+	return names
+}

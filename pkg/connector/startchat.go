@@ -47,10 +47,17 @@ func (c *FChatClient) makeResolveResponse(ctx context.Context, userID networkid.
 }
 
 func (c *FChatClient) GetContactList(ctx context.Context) ([]*bridgev2.ResolveIdentifierResponse, error) {
+	// Contacts are the character's friends and the account's bookmarks.
 	c.stateLock.RLock()
-	names := make([]string, 0, len(c.friends))
-	for _, name := range c.friends {
-		names = append(names, name)
+	seen := make(map[networkid.UserID]bool, len(c.friends)+len(c.bookmarks))
+	names := make([]string, 0, len(c.friends)+len(c.bookmarks))
+	for _, list := range []map[networkid.UserID]string{c.friends, c.bookmarks} {
+		for userID, name := range list {
+			if !seen[userID] {
+				seen[userID] = true
+				names = append(names, name)
+			}
+		}
 	}
 	c.stateLock.RUnlock()
 	slices.SortFunc(names, func(a, b string) int {

@@ -691,9 +691,9 @@ func (c *FChatClient) handleStatus(sta *fchat.StatusChange) {
 func (c *FChatClient) handleFriendList(frl *fchat.FriendList) {
 	c.stateLock.Lock()
 	defer c.stateLock.Unlock()
-	clear(c.friends)
+	clear(c.frlNames)
 	for _, name := range frl.Characters {
-		c.friends[makeUserID(name)] = name
+		c.frlNames[makeUserID(name)] = name
 	}
 }
 
@@ -743,9 +743,17 @@ func (c *FChatClient) handleRealtimeBridge(rtb *fchat.RealtimeBridge) {
 	case "friendrequest":
 		text = fmt.Sprintf("New friend request from **%s**", rtb.Name)
 	case "friendadd":
+		c.updateContactList(c.friends, rtb.Name, true)
 		text = fmt.Sprintf("**%s** is now your friend", rtb.Name)
 	case "friendremove":
+		c.updateContactList(c.friends, rtb.Name, false)
 		text = fmt.Sprintf("**%s** is no longer your friend", rtb.Name)
+	case "trackadd":
+		c.updateContactList(c.bookmarks, rtb.Name, true)
+		text = fmt.Sprintf("**%s** was added to your bookmarks", rtb.Name)
+	case "trackrem":
+		c.updateContactList(c.bookmarks, rtb.Name, false)
+		text = fmt.Sprintf("**%s** was removed from your bookmarks", rtb.Name)
 	default:
 		text = fmt.Sprintf("F-List notification: %s", rtb.Type)
 	}

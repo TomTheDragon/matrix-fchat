@@ -52,8 +52,17 @@ type FChatClient struct {
 	stateLock  sync.RWMutex
 	characters map[networkid.UserID]*characterInfo
 	channels   map[string]*channelState
-	friends    map[networkid.UserID]string
-	ignored    map[networkid.UserID]bool
+	// frlNames are the names from the chat server's FRL list (friends and bookmarks combined).
+	frlNames map[networkid.UserID]string
+	ignored  map[networkid.UserID]bool
+
+	// friends and bookmarks come from the F-List JSON API and map user IDs to names.
+	// They're kept across reconnects.
+	friends      map[networkid.UserID]string
+	bookmarks    map[networkid.UserID]string
+	listsFetched time.Time
+	// listsLock makes sure only one list request runs at a time.
+	listsLock sync.Mutex
 
 	metaLock       sync.Mutex
 	badCredentials atomic.Bool
@@ -85,8 +94,10 @@ func (fc *FChatConnector) newClient(login *bridgev2.UserLogin) *FChatClient {
 		ownID:      makeUserID(meta.Character),
 		characters: make(map[networkid.UserID]*characterInfo),
 		channels:   make(map[string]*channelState),
-		friends:    make(map[networkid.UserID]string),
+		frlNames:   make(map[networkid.UserID]string),
 		ignored:    make(map[networkid.UserID]bool),
+		friends:    make(map[networkid.UserID]string),
+		bookmarks:  make(map[networkid.UserID]string),
 	}
 	client.Conn = fchat.NewClient(fchat.ClientConfig{
 		ServerURL:     fc.Config.ServerURL,
@@ -212,6 +223,7 @@ func (c *FChatClient) onConnected() {
 		}
 	}
 	c.updateSpaceAvatar(ctx)
+	go c.syncContactLists(ctx)
 	c.rejoinChannels(ctx)
 }
 
@@ -317,8 +329,10 @@ func (c *FChatClient) characterName(userID networkid.UserID) string {
 	if info, ok := c.characters[userID]; ok {
 		return info.Name
 	}
-	if name, ok := c.friends[userID]; ok {
-		return name
+	for _, names := range []map[networkid.UserID]string{c.friends, c.bookmarks, c.frlNames} {
+		if name, ok := names[userID]; ok {
+			return name
+		}
 	}
 	for _, ch := range c.channels {
 		if name, ok := ch.Members[userID]; ok {
