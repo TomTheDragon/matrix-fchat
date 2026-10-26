@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"testing"
+	"time"
 
 	"maunium.net/go/mautrix/bridgev2"
 )
@@ -56,5 +57,16 @@ func TestMemberSyncLimit(t *testing.T) {
 	cfg.MemberSyncLimit = -1
 	if cfg.ShouldSyncMembers(1) {
 		t.Error("-1 should disable syncing")
+	}
+}
+
+func TestAvatarIDRefresh(t *testing.T) {
+	const url = "https://static.f-list.net/images/avatar/x.png"
+	start := time.Unix(0, 0).Add(10 * avatarRefreshPeriod)
+	if avatarID(url, start) != avatarID(url, start.Add(avatarRefreshPeriod-time.Second)) {
+		t.Error("avatar ID changed within one refresh period")
+	}
+	if avatarID(url, start) == avatarID(url, start.Add(avatarRefreshPeriod)) {
+		t.Error("avatar ID didn't change after a refresh period")
 	}
 }

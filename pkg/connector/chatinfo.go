@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
@@ -39,9 +40,24 @@ func (c *FChatClient) dmChatInfo(other networkid.UserID) *bridgev2.ChatInfo {
 			OtherUserID: other,
 			MemberMap: bridgev2.ChatMemberMap{}.
 				Set(bridgev2.ChatMember{EventSender: c.sender(string(c.ownID)), Membership: event.MembershipJoin}).
-				Set(bridgev2.ChatMember{EventSender: bridgev2.EventSender{Sender: other}, Membership: event.MembershipJoin}),
+				Set(bridgev2.ChatMember{
+					EventSender: bridgev2.EventSender{Sender: other},
+					Membership:  event.MembershipJoin,
+					UserInfo:    c.userInfoByID(other),
+				}),
 		},
 	}
+}
+
+// userInfoByID returns the user info of a character. The name is only included
+// if the properly capitalized form is known.
+func (c *FChatClient) userInfoByID(userID networkid.UserID) *bridgev2.UserInfo {
+	if name := c.characterName(userID); name != "" {
+		return c.Main.makeUserInfo(name)
+	}
+	info := c.Main.makeUserInfo(string(userID))
+	info.Name = nil
+	return info
 }
 
 func (c *FChatClient) channelChatInfo(channel string, portal *bridgev2.Portal) *bridgev2.ChatInfo {
@@ -59,9 +75,9 @@ func (c *FChatClient) channelChatInfo(channel string, portal *bridgev2.Portal) *
 			members = make([]bridgev2.ChatMember, 0, len(ch.Members))
 			for userID, name := range ch.Members {
 				member := bridgev2.ChatMember{EventSender: c.sender(name), Membership: event.MembershipJoin}
-				member.UserInfo = &bridgev2.UserInfo{Name: ptrTo(name)}
-				if userID == c.ownID {
-					member.UserInfo = nil
+				if userID != c.ownID {
+					// Include the avatar: once a ghost has a name, bridgev2 doesn't ask for its info again.
+					member.UserInfo = c.Main.makeUserInfo(name)
 				}
 				members = append(members, member)
 			}
@@ -174,6 +190,15 @@ func (c *FChatClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*
 	return c.Main.makeUserInfo(name), nil
 }
 
+// avatarRefreshPeriod is how often avatars are downloaded again. F-List avatar URLs
+// don't change when the image does, so the avatar ID includes the current period.
+// The image is only uploaded again if it actually changed.
+const avatarRefreshPeriod = 7 * 24 * time.Hour
+
+func avatarID(avatarURL string, now time.Time) networkid.AvatarID {
+	return networkid.AvatarID(fmt.Sprintf("%s#%d", avatarURL, now.Unix()/int64(avatarRefreshPeriod/time.Second)))
+}
+
 func (fc *FChatConnector) makeUserInfo(name string) *bridgev2.UserInfo {
 	avatarURL := fchat.AvatarURL(fc.Config.StaticURL, name)
 	return &bridgev2.UserInfo{
@@ -181,7 +206,7 @@ func (fc *FChatConnector) makeUserInfo(name string) *bridgev2.UserInfo {
 		Identifiers: []string{"fchat:" + name, fchat.ProfileURL(fc.Config.SiteURL, name)},
 		IsBot:       ptrTo(false),
 		Avatar: &bridgev2.Avatar{
-			ID: networkid.AvatarID(avatarURL),
+			ID: avatarID(avatarURL, time.Now()),
 			Get: func(ctx context.Context) ([]byte, error) {
 				return fc.download(ctx, avatarURL)
 			},

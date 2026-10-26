@@ -78,6 +78,9 @@ func (fc *FChatConnector) GetName() bridgev2.BridgeName {
 
 func (fc *FChatConnector) GetCapabilities() *bridgev2.NetworkGeneralCapabilities {
 	return &bridgev2.NetworkGeneralCapabilities{
+		// Check ghost info on every message. Without this, ghosts that got a name
+		// without an avatar would never get their avatar.
+		AggressiveUpdateInfo: true,
 		Provisioning: bridgev2.ProvisioningCapabilities{
 			ResolveIdentifier: bridgev2.ResolveIdentifierCapabilities{
 				CreateDM:       true,
