@@ -42,8 +42,7 @@ messages; errors (such as flood control or "character not found") are matched to
 message using a short time window (`error_wait_ms`).
 
 Link previews: links to F-List are shown in inline code and ads as quotes, because Element doesn't
-generate previews there. Links that open chats and channels are in inline code as well, because
-Element otherwise replaces them with pills, which hides the name. Messages also carry an empty `com.beeper.linkpreviews` list (MSC4095)
+generate previews there. Links that open chats and channels are in inline code as well. Messages also carry an empty `com.beeper.linkpreviews` list (MSC4095)
 when they only contain F-List links (and always for ads), which clients that support it respect.
 
 Element only plays animated images (eicons) in image and sticker events, never in formatted text.
@@ -127,6 +126,12 @@ namespaces:
 
 Without the namespace, the links show an "alias not found" error; the `join` and `start-chat`
 commands still work.
+
+The links point to `https://app.element.io/#/room/<alias>` by default (`open_link_prefix`).
+Element Web and Desktop open them in the app. matrix.to links don't work well there: Element
+replaces them with a pill that shows the long alias instead of the 💬, even inside inline code.
+Set `open_link_prefix` to your own Element Web address, or to an empty string for matrix.to links
+(better for other clients).
 
 ## Docker
 

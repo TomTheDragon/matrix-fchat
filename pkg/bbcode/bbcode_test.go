@@ -85,6 +85,13 @@ func TestImagesAndLinks(t *testing.T) {
 		{"icon", "[icon]bob[/icon]",
 			`<code><a href="https://www.f-list.net/c/bob"><img src="mxc://x/avatar_bob" alt="bob" title="bob" width="50" height="50"></a>` +
 				` <a href="https://matrix.to/#/%23open_bob">💬</a></code>`, "bob"},
+		{"icons on one line", "[icon]a[/icon][icon]b[/icon] [icon]c[/icon]",
+			`<code><a href="https://www.f-list.net/c/a"><img src="mxc://x/avatar_a" alt="a" title="a" width="50" height="50"></a>` +
+				` <a href="https://matrix.to/#/%23open_a">💬</a></code>` +
+				`<code><a href="https://www.f-list.net/c/b"><img src="mxc://x/avatar_b" alt="b" title="b" width="50" height="50"></a>` +
+				` <a href="https://matrix.to/#/%23open_b">💬</a></code> ` +
+				`<code><a href="https://www.f-list.net/c/c"><img src="mxc://x/avatar_c" alt="c" title="c" width="50" height="50"></a>` +
+				` <a href="https://matrix.to/#/%23open_c">💬</a></code>`, "ab c"},
 		{"eicon", "[eicon]wave[/eicon]",
 			`<img src="mxc://x/eicon_wave" alt="wave" title="wave" width="50" height="50">`, ":wave:"},
 		{"missing eicon", "[eicon]missing[/eicon]",

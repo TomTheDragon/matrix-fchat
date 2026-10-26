@@ -22,6 +22,8 @@ type Config struct {
 	MemberSyncLimit int  `yaml:"member_sync_limit"`
 	BridgeAds       bool `yaml:"bridge_ads"`
 
+	OpenLinkPrefix string `yaml:"open_link_prefix"`
+
 	CreateFriendDMs bool `yaml:"create_friend_dms"`
 
 	BridgeStatusChanges bool `yaml:"bridge_status_changes"`
@@ -59,6 +61,7 @@ func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.Int, "error_wait_ms")
 	helper.Copy(up.Int, "member_sync_limit")
 	helper.Copy(up.Bool, "bridge_ads")
+	helper.Copy(up.Str, "open_link_prefix")
 	helper.Copy(up.Bool, "create_friend_dms")
 	helper.Copy(up.Bool, "bridge_status_changes")
 	helper.Copy(up.Bool, "bridge_notices")
@@ -74,6 +77,7 @@ func (fc *FChatConnector) GetConfig() (string, any, up.Upgrader) {
 			{"error_wait_ms"},
 			{"member_sync_limit"},
 			{"bridge_ads"},
+			{"open_link_prefix"},
 			{"create_friend_dms"},
 			{"bridge_status_changes"},
 			{"default_status_message"},
@@ -106,6 +110,11 @@ func (fc *FChatConnector) ValidateConfig() error {
 	}
 	if err := validateURL("static_url", fc.Config.StaticURL, "http", "https"); err != nil {
 		return err
+	}
+	if fc.Config.OpenLinkPrefix != "" {
+		if err := validateURL("open_link_prefix", fc.Config.OpenLinkPrefix, "http", "https"); err != nil {
+			return err
+		}
 	}
 	return nil
 }

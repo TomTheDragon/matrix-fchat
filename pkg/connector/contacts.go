@@ -303,8 +303,7 @@ const avatarSize = 24
 
 // renderName renders the name of a character in its F-Chat gender color, linked to its
 // F-List profile, followed by a 💬 link to the chat with it. Like [user] tags, the links are
-// in <code>, because Element replaces matrix.to links with pills (hiding the name) and
-// shows previews for other links, but does neither inside code.
+// in <code>, because Element doesn't generate link previews there.
 func renderName(name, gender, profile, chat string) string {
 	label := "<strong>" + html.EscapeString(name) + "</strong>"
 	if color := genderColor(gender); color != "" {

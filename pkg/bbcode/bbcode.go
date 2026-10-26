@@ -366,8 +366,8 @@ func coloredName(name, color string) string {
 // characterLinks renders [user] and [icon] tags: the label (name or avatar) linked to the
 // character's profile, followed by a 💬 link that opens the chat with the character.
 //
-// Both links are wrapped in <code>: Element replaces matrix.to links with pills (which hides
-// the label) and generates link previews, but does neither for links inside code.
+// Both links are wrapped in <code>, because Element doesn't generate link previews there.
+// There's no line break before or after them, so several can be on the same line.
 func (r *renderer) characterLinks(name, label string) {
 	r.hasFormatting = true
 	r.plain.WriteString(name)

@@ -22,7 +22,7 @@ import (
 	"matrix-fchat/pkg/fchat"
 )
 
-// Open links are matrix.to links to room aliases like #fchat_open_<payload>_<signature>:example.com.
+// Open links are links to room aliases like #fchat_open_<payload>_<signature>:example.com.
 // The aliases don't exist until someone opens the link: the homeserver then asks the bridge
 // about the alias, and the bridge joins the channel (or creates the DM room), invites the
 // user and creates the alias. This makes it possible to join channels and start chats
@@ -96,7 +96,7 @@ func parseOpenAliasLocalpart(key []byte, localpart string) (kind byte, login net
 	return payload[0], networkid.UserLoginID(loginPart), target, true
 }
 
-// openLink returns a matrix.to link that opens a channel or DM for the login, or "" if
+// openLink returns a link that opens a channel or DM for the login, or "" if
 // open links aren't available.
 func (fc *FChatConnector) openLink(login networkid.UserLoginID, kind byte, target string) string {
 	key := fc.openLinkKey()
@@ -104,7 +104,18 @@ func (fc *FChatConnector) openLink(login networkid.UserLoginID, kind byte, targe
 		return ""
 	}
 	alias := "#" + makeOpenAliasLocalpart(key, kind, login, target) + ":" + fc.Bridge.Matrix.ServerName()
-	return "https://matrix.to/#/" + strings.ReplaceAll(alias, "#", "%23")
+	return openLinkURL(fc.Config.OpenLinkPrefix, alias)
+}
+
+// openLinkURL makes a link to the alias, starting with the prefix (matrix.to if empty).
+// Element replaces matrix.to links with pills that show the alias instead of the link text,
+// even inside <code>, so the default prefix is an Element Web link, which Element opens in
+// the app without making it a pill.
+func openLinkURL(prefix, alias string) string {
+	if prefix == "" {
+		prefix = "https://matrix.to/#/"
+	}
+	return prefix + strings.ReplaceAll(alias, "#", "%23")
 }
 
 // channelLink returns a link that joins a channel and opens its room.
