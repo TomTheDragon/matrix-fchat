@@ -183,7 +183,7 @@ func (fc *FChatConnector) retireGhost(ctx context.Context, ghost *bridgev2.Ghost
 		for _, key := range allProfileKeys {
 			_ = cleared.Set(key, nil)
 		}
-		ghost.UpdateContactInfo(ctx, nil, nil, cleared)
+		fc.setProfileFields(ctx, ghost, cleared)
 	}
 	// Reset the ghost, so name and avatar are set again if the character comes back.
 	ghost.Name = ""
@@ -196,6 +196,7 @@ func (fc *FChatConnector) retireGhost(ctx context.Context, ghost *bridgev2.Ghost
 	meta := ghost.Metadata.(*GhostMetadata)
 	meta.Removed = true
 	meta.ProfileFetched = 0
+	meta.ProfileFieldsHash = ""
 	if err := fc.Bridge.DB.Ghost.Update(ctx, ghost.Ghost); err != nil {
 		log.Err(err).Msg("Failed to save removed ghost")
 	}

@@ -8,12 +8,12 @@ built on [mautrix-go bridgev2](https://pkg.go.dev/maunium.net/go/mautrix/bridgev
 | F-Chat                                          | Matrix                                                                   |
 |-------------------------------------------------|--------------------------------------------------------------------------|
 | Public channels and private rooms (ADH-…)       | One Matrix room per channel and login                                    |
-| Private messages (PRI)                          | DM rooms, started with `start-chat <character>`                          |
+| Private messages (PRI)                          | DM rooms, started with `start-chat <character>`; messages to offline characters are sent when they come online (`queue_offline_messages`) |
 | BBCode (b, i, u, s, sup, sub, color, url, user, icon, eicon, spoiler, noparse, session) | HTML formatting, in both directions           |
 | `[eicon]` and emoticons (`:heart:`, `:lif-smile:`, …) | Inline images (uploaded to Matrix once and cached); messages with only eicons are sent as stickers, so animated eicons play |
 | `[icon]`                                        | Avatar image linked to the F-List profile, then 💬 (opens the private chat) |
 | `[user]` names                                  | Name in the F-Chat gender color linked to the F-List profile, then 💬 (opens the private chat) |
-| Character profiles                              | Ghost biography (status + profile summary), pronouns and name color (see [Profile fields](#profile-fields)) |
+| Character profiles                              | Ghost biography (profile summary + link to the F-List profile), pronouns and name color (see [Profile fields](#profile-fields)) |
 | `/me` actions                                   | `m.emote`                                                                |
 | Roleplay ads (LRP)                              | Quoted message with an `[Ad]` prefix; send with `ad <text>`; turn on/off per character or room with `ads` |
 | Character search (FKS)                          | `find-partners` command                                                  |
@@ -86,7 +86,7 @@ The script builds with `-tags goolm` (a pure Go implementation of Olm), so `libo
 ### Profile fields
 
 Ghosts get custom Matrix profile fields: a biography with a short summary of the F-List profile
-(gender, species, age, orientation, role, "currently looking for") and the F-Chat status,
+(gender, species, age, orientation, role, "currently looking for") and a link to the profile,
 pronouns (Male: he/him, Female: she/her, other genders: they/them) and a name color in the
 F-Chat gender color. This needs a homeserver with custom profile fields (Matrix v1.16 / MSC4133;
 in Synapse `experimental_features: msc4133_enabled: true`) and, in the bridge config:
@@ -101,6 +101,10 @@ There are no stable field names yet, so the bridge sets the keys of the proposal
 Sable and Commet (`moe.sable.app.bio`, `chat.commet.profile_bio`, `moe.sable.app.name_color`).
 Element doesn't show these fields yet. Profiles are loaded from F-List at most once a week per
 character (`network: fetch_character_profiles`).
+
+mautrix normally also adds `com.beeper.bridge.*` fields (remote ID, identifiers, network) to
+every ghost profile, which only Beeper clients use. The bridge leaves them out and removes
+existing ones, unless `network: beeper_profile_fields` is enabled.
 
 ### Ghost cleanup
 

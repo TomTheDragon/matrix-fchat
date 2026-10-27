@@ -64,7 +64,9 @@ type FChatClient struct {
 	// listsLock makes sure only one list request runs at a time.
 	listsLock sync.Mutex
 
-	metaLock       sync.Mutex
+	metaLock sync.Mutex
+	// offlineLock makes sure queued messages are only sent once.
+	offlineLock    sync.Mutex
 	badCredentials atomic.Bool
 	// rejoining is set while the bridge rejoins channels after connecting, to
 	// suppress "already in channel" errors.

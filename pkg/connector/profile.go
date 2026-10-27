@@ -1,7 +1,11 @@
 package connector
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
@@ -9,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
@@ -17,8 +22,8 @@ import (
 	"matrix-fchat/pkg/fchat"
 )
 
-// Ghosts get custom Matrix profile fields (Matrix v1.16 / MSC4133): a biography with the
-// F-Chat status and a short summary of the F-List profile, pronouns based on the gender,
+// Ghosts get custom Matrix profile fields (Matrix v1.16 / MSC4133): a biography with a short
+// summary of the F-List profile and a link to it, pronouns based on the gender,
 // and a name color based on the gender. There are no stable keys yet, so the keys of the
 // MSCs and of the clients that show these fields are set.
 var (
@@ -28,6 +33,13 @@ var (
 	commetBioKey   = "chat.commet.profile_bio"                      // Commet and Sable
 	nameColorKey   = "moe.sable.app.name_color"                     // Sable: #rrggbb
 	allProfileKeys = append(append(append([]string{}, pronounKeys...), biographyKeys...), htmlBioKey, commetBioKey, nameColorKey)
+
+	// beeperProfileKeys are the fields that mautrix adds to every ghost profile. They're only
+	// set if beeper_profile_fields is enabled.
+	beeperProfileKeys = []string{
+		"com.beeper.bridge.remote_id", "com.beeper.bridge.identifiers", "com.beeper.bridge.service",
+		"com.beeper.bridge.network", "com.beeper.bridge.is_bridge_bot", "com.beeper.bridge.is_network_bot",
+	}
 )
 
 const (
@@ -63,33 +75,27 @@ func truncateRunes(s string, n int) string {
 	return s
 }
 
-// biography returns the lines of a character's Matrix biography.
-func (c *FChatClient) biography(userID networkid.UserID, meta *GhostMetadata) []string {
-	var lines []string
+// biography returns a character's Matrix biography as plain text and HTML: the short summary
+// of the F-List profile (if it was loaded) and a link to the profile.
+func (c *FChatClient) biography(name string, meta *GhostMetadata) (plain, htmlBio string) {
+	var plainLines, htmlLines []string
 	if meta.ProfileSummary != "" {
-		lines = append(lines, strings.Split(meta.ProfileSummary, "\n")...)
-	}
-	c.stateLock.RLock()
-	info, online := c.characters[userID]
-	var status fchat.Status
-	var statusMsg string
-	if online {
-		status, statusMsg = info.Status, info.StatusMsg
-	}
-	c.stateLock.RUnlock()
-	if online && status != "" && status != fchat.StatusOffline {
-		line := "Status: " + string(status)
-		if msg := strings.TrimSpace(bbcode.ToPlain(bbcode.DecodeEntities(statusMsg))); msg != "" {
-			line += " – " + truncateRunes(msg, maxBioStatusLength)
+		for _, line := range strings.Split(meta.ProfileSummary, "\n") {
+			plainLines = append(plainLines, line)
+			htmlLines = append(htmlLines, html.EscapeString(line))
 		}
-		lines = append(lines, line)
 	}
-	return lines
+	if name != "" && c.Main != nil {
+		profile := fchat.ProfileURL(c.Main.Config.SiteURL, name)
+		plainLines = append(plainLines, "F-List profile: "+profile)
+		htmlLines = append(htmlLines, fmt.Sprintf(`<a href="%s">F-List profile</a>`, html.EscapeString(profile)))
+	}
+	return strings.Join(plainLines, "\n"), strings.Join(htmlLines, "<br>")
 }
 
 // profileFields returns the custom profile fields of a ghost. Fields without a value are
 // set to null, which removes them.
-func (c *FChatClient) profileFields(userID networkid.UserID, meta *GhostMetadata) database.ExtraProfile {
+func (c *FChatClient) profileFields(name string, meta *GhostMetadata) database.ExtraProfile {
 	fields := make(database.ExtraProfile)
 	set := func(keys []string, value any) {
 		for _, key := range keys {
@@ -106,13 +112,7 @@ func (c *FChatClient) profileFields(userID networkid.UserID, meta *GhostMetadata
 	} else {
 		set([]string{nameColorKey}, nil)
 	}
-	if lines := c.biography(userID, meta); len(lines) > 0 {
-		plain := strings.Join(lines, "\n")
-		escaped := make([]string, len(lines))
-		for i, line := range lines {
-			escaped[i] = html.EscapeString(line)
-		}
-		htmlBio := strings.Join(escaped, "<br>")
+	if plain, htmlBio := c.biography(name, meta); plain != "" {
 		set(biographyKeys, map[string]any{"m.text": []map[string]string{
 			{"body": htmlBio, "mimetype": "text/html"},
 			{"body": plain},
@@ -165,10 +165,66 @@ func (c *FChatClient) updateGhostExtras(ctx context.Context, ghost *bridgev2.Gho
 	if c.Main.Config.FetchCharacterProfiles && now.Sub(time.Unix(meta.ProfileFetched, 0)) > profileMaxAge && isValidCharacterName(name) {
 		c.Main.profiles.queue(c, name)
 	}
-	if ghost.UpdateContactInfo(ctx, nil, nil, c.profileFields(ghost.ID, meta)) {
+	if c.Main.setProfileFields(ctx, ghost, c.profileFields(name, meta)) {
 		changed = true
 	}
 	return changed
+}
+
+// setProfileFields sets the custom profile fields of a ghost and returns whether the ghost
+// changed. Without beeper_profile_fields, the fields are set directly, because mautrix always
+// adds its com.beeper.bridge.* fields; those are removed instead.
+func (fc *FChatConnector) setProfileFields(ctx context.Context, ghost *bridgev2.Ghost, fields database.ExtraProfile) bool {
+	if fc.Config.BeeperProfileFields {
+		return ghost.UpdateContactInfo(ctx, nil, nil, fields)
+	}
+	meta, ok := ghost.Metadata.(*GhostMetadata)
+	mc := fc.matrixConnector()
+	if !ok || mc == nil {
+		return false
+	}
+	for _, key := range beeperProfileKeys {
+		_ = fields.Set(key, nil)
+	}
+	encoded, err := json.Marshal(fields)
+	if err != nil {
+		return false
+	}
+	hash := sha256.Sum256(encoded)
+	fieldsHash := hex.EncodeToString(hash[:])
+	if meta.ProfileFieldsHash == fieldsHash {
+		return false
+	}
+	log := zerolog.Ctx(ctx).With().Str("ghost_id", string(ghost.ID)).Logger()
+	intent := mc.AS.Intent(ghost.Intent.GetMXID())
+	current, err := intent.GetProfile(ctx, intent.UserID)
+	if err != nil {
+		log.Err(err).Msg("Failed to get ghost profile")
+		return false
+	}
+	for key, value := range fields {
+		existing, exists := current.Extra[key]
+		isNull := bytes.Equal(value, []byte("null"))
+		switch {
+		case !exists && isNull:
+			continue
+		case exists && isNull:
+			err = intent.DeleteProfileField(ctx, key)
+		default:
+			if exists {
+				if existingJSON, _ := json.Marshal(existing); bytes.Equal(existingJSON, value) {
+					continue
+				}
+			}
+			err = intent.SetProfileField(ctx, key, value)
+		}
+		if err != nil {
+			log.Err(err).Str("field", key).Msg("Failed to update ghost profile field")
+			return false
+		}
+	}
+	meta.ProfileFieldsHash = fieldsHash
+	return true
 }
 
 // profileFetcher loads F-List profiles one at a time in the background.
@@ -326,34 +382,4 @@ func (c *FChatClient) withTicket(ctx context.Context, fn func(account, ticket st
 		err = fn(account, ticket.Ticket)
 	}
 	return err
-}
-
-// isKnownCharacter returns whether a character is a friend, a bookmark or in one of the
-// channels, i.e. probably has a ghost that the user sees.
-func (c *FChatClient) isKnownCharacter(userID networkid.UserID) bool {
-	c.stateLock.RLock()
-	defer c.stateLock.RUnlock()
-	if _, ok := c.friends[userID]; ok {
-		return true
-	}
-	if _, ok := c.bookmarks[userID]; ok {
-		return true
-	}
-	for _, ch := range c.channels {
-		if _, ok := ch.Members[userID]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-// refreshGhostProfile updates the profile of an existing ghost, e.g. after a status change.
-func (c *FChatClient) refreshGhostProfile(name string) {
-	ctx, cancel := context.WithTimeout(c.ctx(), time.Minute)
-	defer cancel()
-	ghost, err := c.Main.Bridge.GetExistingGhostByID(ctx, makeUserID(name))
-	if err != nil || ghost == nil {
-		return
-	}
-	ghost.UpdateInfo(ctx, c.userInfo(name))
 }

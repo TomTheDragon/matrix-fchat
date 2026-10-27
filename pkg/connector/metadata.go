@@ -25,6 +25,10 @@ type UserLoginMetadata struct {
 	// ShowAds overrides the bridge_ads config option for this character (nil = use the config).
 	ShowAds *bool `json:"show_ads,omitempty"`
 
+	// OfflineMessages are private messages to offline characters (by user ID), which are
+	// sent when the character comes online.
+	OfflineMessages map[string][]queuedMessage `json:"offline_messages,omitempty"`
+
 	// SpaceAvatar is the avatar the bridge last set on the login's space room.
 	SpaceAvatar id.ContentURIString `json:"space_avatar,omitempty"`
 }
@@ -36,6 +40,9 @@ type GhostMetadata struct {
 	LastSeen int64 `json:"last_seen,omitempty"`
 	// Removed is set when the ghost cleanup cleared the ghost's profile and rooms.
 	Removed bool `json:"removed,omitempty"`
+	// ProfileFieldsHash is the hash of the custom profile fields that were last set, so that
+	// they're only sent to the homeserver when they changed.
+	ProfileFieldsHash string `json:"profile_fields_hash,omitempty"`
 	// ProfileSummary is the short summary of the F-List profile, for the Matrix biography.
 	ProfileSummary string `json:"profile_summary,omitempty"`
 	// ProfileFetched is when the F-List profile was last loaded (unix seconds).

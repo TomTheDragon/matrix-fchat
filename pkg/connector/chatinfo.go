@@ -206,10 +206,8 @@ func avatarID(avatarURL string, now time.Time) networkid.AvatarID {
 
 func (fc *FChatConnector) makeUserInfo(name string) *bridgev2.UserInfo {
 	avatarURL := fchat.AvatarURL(fc.Config.StaticURL, name)
-	return &bridgev2.UserInfo{
-		Name:        ptrTo(name),
-		Identifiers: []string{"fchat:" + name, fchat.ProfileURL(fc.Config.SiteURL, name)},
-		IsBot:       ptrTo(false),
+	info := &bridgev2.UserInfo{
+		Name: ptrTo(name),
 		Avatar: &bridgev2.Avatar{
 			ID: avatarID(avatarURL, time.Now()),
 			Get: func(ctx context.Context) ([]byte, error) {
@@ -217,6 +215,12 @@ func (fc *FChatConnector) makeUserInfo(name string) *bridgev2.UserInfo {
 			},
 		},
 	}
+	if fc.Config.BeeperProfileFields {
+		// Only used for the com.beeper.bridge.* profile fields.
+		info.Identifiers = []string{"fchat:" + name, fchat.ProfileURL(fc.Config.SiteURL, name)}
+		info.IsBot = ptrTo(false)
+	}
+	return info
 }
 
 func (fc *FChatConnector) download(ctx context.Context, url string) ([]byte, error) {

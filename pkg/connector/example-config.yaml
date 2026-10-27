@@ -35,6 +35,11 @@ open_link_prefix: https://app.element.io/#/room/
 # leave a friend's DM room, it isn't created again until you start a chat yourself.
 create_friend_dms: true
 
+# Should private messages to offline characters be kept and sent when they come online?
+# F-Chat can only deliver messages to online characters. Up to 50 messages per character
+# are kept, also across restarts of the bridge.
+queue_offline_messages: true
+
 # Should status changes of characters you have a DM with be posted into the DM room?
 bridge_status_changes: false
 # Should F-Chat server notices (SYS, broadcasts, invites, notes) be sent to your
@@ -47,10 +52,14 @@ default_status_message: ""
 
 # Should the bridge load the F-List profiles of characters (gender, species, age,
 # orientation, role, "currently looking for") for the biography of their Matrix profile?
-# Profiles are loaded at most once a week per character. Biography, pronouns and name color
-# need a homeserver with custom profile fields (Matrix v1.16 / MSC4133) and
-# `matrix: ghost_extra_profile_info: true` in the bridge section of this config.
+# The biography also links to the F-List profile. Profiles are loaded at most once a week
+# per character. Biography, pronouns and name color need a homeserver with custom profile
+# fields (Matrix v1.16 / MSC4133) and `matrix: ghost_extra_profile_info: true` in the bridge
+# section of this config.
 fetch_character_profiles: true
+# Should ghost profiles also get the com.beeper.bridge.* fields (remote ID, identifiers,
+# network, ...)? They're only used by Beeper clients. When disabled, existing ones are removed.
+beeper_profile_fields: false
 
 # Remove ghost users that weren't seen for this many days and that nobody has a private
 # chat with: they leave all rooms and their Matrix profile is cleared (an appservice can't

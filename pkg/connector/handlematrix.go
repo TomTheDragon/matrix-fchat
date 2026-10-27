@@ -193,7 +193,16 @@ func (c *FChatClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.Mat
 				recipient = string(dmUser)
 			}
 		}
-		err = c.Conn.SendMessage(ctx, fchat.CmdPrivate, &fchat.PrivateMessageRequest{Recipient: recipient, Message: text})
+		if c.Main.Config.QueueOfflineMessages && !c.isOnline(dmUser) {
+			err = c.queueOfflineMessage(ctx, recipient, text)
+		} else {
+			err = c.Conn.SendMessage(ctx, fchat.CmdPrivate, &fchat.PrivateMessageRequest{Recipient: recipient, Message: text})
+			var fcErr *fchat.Error
+			if c.Main.Config.QueueOfflineMessages && errors.As(err, &fcErr) && fcErr.Code == fchat.ErrCodeCharacterNotFound {
+				// The character went offline just now.
+				err = c.queueOfflineMessage(ctx, recipient, text)
+			}
+		}
 	}
 	if err != nil {
 		return nil, wrapSendError(err)

@@ -738,16 +738,22 @@ func (c *FChatClient) handleRoomMode(rmo *fchat.RoomModeChange) {
 }
 
 func (c *FChatClient) handleOnline(nln *fchat.OnlineNotice) {
+	userID := makeUserID(nln.Identity)
 	c.stateLock.Lock()
-	defer c.stateLock.Unlock()
-	c.characters[makeUserID(nln.Identity)] = &characterInfo{
+	c.characters[userID] = &characterInfo{
 		Name:   nln.Identity,
 		Gender: nln.Gender,
 		Status: nln.Status,
 	}
+	c.stateLock.Unlock()
+	if c.hasOfflineMessages(userID) {
+		go c.deliverOfflineMessagesTo(userID)
+	}
 }
 
 func (c *FChatClient) handleOnlineList(lis *fchat.OnlineList) {
+	// Messages may have been queued for characters that came online while disconnected.
+	defer func() { go c.deliverOfflineMessages() }()
 	c.stateLock.Lock()
 	defer c.stateLock.Unlock()
 	for _, entry := range lis.Characters {
@@ -806,10 +812,6 @@ func (c *FChatClient) handleStatus(sta *fchat.StatusChange) {
 	info.Status = sta.Status
 	info.StatusMsg = statusMsg
 	c.stateLock.Unlock()
-	if userID != c.ownID && c.Main.extraProfileSupported() && c.isKnownCharacter(userID) {
-		// The status is part of the ghost's Matrix biography.
-		go c.refreshGhostProfile(sta.Character)
-	}
 	if !c.Main.Config.BridgeStatusChanges || userID == c.ownID {
 		return
 	}

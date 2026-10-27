@@ -24,7 +24,8 @@ type Config struct {
 
 	OpenLinkPrefix string `yaml:"open_link_prefix"`
 
-	CreateFriendDMs bool `yaml:"create_friend_dms"`
+	CreateFriendDMs      bool `yaml:"create_friend_dms"`
+	QueueOfflineMessages bool `yaml:"queue_offline_messages"`
 
 	BridgeStatusChanges bool `yaml:"bridge_status_changes"`
 	BridgeNotices       bool `yaml:"bridge_notices"`
@@ -32,6 +33,7 @@ type Config struct {
 	DefaultStatusMessage string `yaml:"default_status_message"`
 
 	FetchCharacterProfiles bool `yaml:"fetch_character_profiles"`
+	BeeperProfileFields    bool `yaml:"beeper_profile_fields"`
 	GhostCleanupDays       int  `yaml:"ghost_cleanup_days"`
 }
 
@@ -63,10 +65,12 @@ func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.Bool, "bridge_ads")
 	helper.Copy(up.Str, "open_link_prefix")
 	helper.Copy(up.Bool, "create_friend_dms")
+	helper.Copy(up.Bool, "queue_offline_messages")
 	helper.Copy(up.Bool, "bridge_status_changes")
 	helper.Copy(up.Bool, "bridge_notices")
 	helper.Copy(up.Str, "default_status_message")
 	helper.Copy(up.Bool, "fetch_character_profiles")
+	helper.Copy(up.Bool, "beeper_profile_fields")
 	helper.Copy(up.Int, "ghost_cleanup_days")
 }
 
@@ -79,9 +83,11 @@ func (fc *FChatConnector) GetConfig() (string, any, up.Upgrader) {
 			{"bridge_ads"},
 			{"open_link_prefix"},
 			{"create_friend_dms"},
+			{"queue_offline_messages"},
 			{"bridge_status_changes"},
 			{"default_status_message"},
 			{"fetch_character_profiles"},
+			{"beeper_profile_fields"},
 			{"ghost_cleanup_days"},
 		},
 		Base: ExampleConfig,

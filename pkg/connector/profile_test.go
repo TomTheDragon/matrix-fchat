@@ -37,11 +37,14 @@ func TestProfileSummary(t *testing.T) {
 }
 
 func TestProfileFields(t *testing.T) {
-	c := &FChatClient{characters: map[networkid.UserID]*characterInfo{
-		"zed": {Name: "Zed", Status: fchat.StatusLooking, StatusMsg: "[b]LF[/b] scenes"},
-	}}
+	c := &FChatClient{
+		Main: &FChatConnector{Config: Config{SiteURL: "https://www.f-list.net"}},
+		characters: map[networkid.UserID]*characterInfo{
+			"zed": {Name: "Zed", Status: fchat.StatusLooking, StatusMsg: "[b]LF[/b] scenes"},
+		},
+	}
 	meta := &GhostMetadata{Gender: "Female", ProfileSummary: "Female · Wolf"}
-	fields := c.profileFields("zed", meta)
+	fields := c.profileFields("Zed", meta)
 	get := func(key string) string { return string(fields[key]) }
 	if get("m.pronouns") != `[{"language":"en","summary":"she/her"}]` || get("io.fsky.nyx.pronouns") != get("m.pronouns") {
 		t.Errorf("unexpected pronouns %s", get("m.pronouns"))
@@ -55,16 +58,17 @@ func TestProfileFields(t *testing.T) {
 	if err := json.Unmarshal(fields["m.biography"], &bio); err != nil || len(bio.Text) != 2 {
 		t.Fatalf("unexpected biography %s (%v)", get("m.biography"), err)
 	}
-	if bio.Text[1].Body != "Female · Wolf\nStatus: looking – LF scenes" || bio.Text[0].Mimetype != "text/html" ||
+	// The status isn't part of the biography, the link to the profile is.
+	if bio.Text[1].Body != "Female · Wolf\nF-List profile: https://www.f-list.net/c/Zed" || bio.Text[0].Mimetype != "text/html" ||
 		!strings.Contains(bio.Text[0].Body, "<br>") {
 		t.Errorf("unexpected biography %+v", bio.Text)
 	}
-	if get("moe.sable.app.bio") != `"Female · Wolf<br>Status: looking – LF scenes"` {
+	if get("moe.sable.app.bio") != `"Female · Wolf<br><a href=\"https://www.f-list.net/c/Zed\">F-List profile</a>"` {
 		t.Errorf("unexpected Sable bio %s", get("moe.sable.app.bio"))
 	}
 
 	// Unknown gender and no bio: the fields are removed.
-	fields = c.profileFields("nobody", &GhostMetadata{})
+	fields = c.profileFields("", &GhostMetadata{})
 	for _, key := range allProfileKeys {
 		if string(fields[key]) != "null" {
 			t.Errorf("%s should be null, got %s", key, fields[key])
