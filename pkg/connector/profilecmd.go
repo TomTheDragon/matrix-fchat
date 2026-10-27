@@ -416,9 +416,5 @@ func compareKinks(own, theirs map[string]string, names map[string]string) *kinkM
 
 // summary is a line like "Match with Kira: 80% (40 kinks you both like, 10 conflicts)".
 func (m *kinkMatch) summary() string {
-	percent := 0
-	if total := m.Shared + m.Conflicts; total > 0 {
-		percent = (m.Shared*100 + total/2) / total
-	}
-	return fmt.Sprintf("Kink match with %s: %d%% (%d liked by both, %d conflicts)", m.Own, percent, m.Shared, m.Conflicts)
+	return fmt.Sprintf("Kink match with %s: %d%% (%d liked by both, %d conflicts)", m.Own, m.percent(), m.Shared, m.Conflicts)
 }

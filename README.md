@@ -16,7 +16,7 @@ built on [mautrix-go bridgev2](https://pkg.go.dev/maunium.net/go/mautrix/bridgev
 | Character profiles                              | Ghost biography (profile summary + link to the F-List profile), pronouns and name color (see [Profile fields](#profile-fields)) |
 | `/me` actions                                   | `m.emote`                                                                |
 | Roleplay ads (LRP)                              | Quoted message with an `[Ad]` prefix; send with `ad <text>`, or every N minutes with `auto-ad`; turn on/off per character or room with `ads` |
-| Character search (FKS)                          | `find-partners` command                                                  |
+| Character search (FKS)                          | `find-partners` command; `find-matches` shows the 5 online characters whose profiles match yours best |
 | Dice rolls / bottle spins (RLL)                 | Notice; send with `roll 1d20` or `bottle`                                |
 | Typing status (TPN) in DMs                      | Typing notifications (both directions)                                   |
 | Channel description (CDS)                       | Room topic (both directions; changing it requires channel op)            |
@@ -28,7 +28,7 @@ built on [mautrix-go bridgev2](https://pkg.go.dev/maunium.net/go/mautrix/bridgev
 | Ignore list                                     | Messages from ignored characters are dropped                             |
 | Friends                                         | A DM room per friend (`create_friend_dms`), contact list, `friends` command; send, accept, deny and cancel requests and remove friends with `friend` and `friend-requests` |
 | Bookmarks                                       | Contact list; `bookmarks` lists them with avatars, gender colors and online status; `bookmark add/remove` |
-| Friends/bookmarks coming online                 | Optional notice (`online_alerts`, `online-alerts` command)               |
+| Characters coming online                        | Optional notice for friends and bookmarks (`online_alerts`, `online-alerts` command), and for any character you turn it on for in the private chat |
 | Character memos                                 | `memo` command; shown in `profile`                                       |
 | Idle status                                     | Set automatically after `auto_idle_minutes` without activity on Matrix   |
 | Avatars                                         | Ghost avatars from static.f-list.net                                     |
@@ -43,7 +43,9 @@ new ticket invalidates all previous ones.
 F-Chat messages have no IDs. Because of that, there are **no edits, deletions, reactions,
 replies or threads**, and no message history (backfill). The server doesn't confirm successful
 messages; errors (such as flood control or "character not found") are matched to the sent
-message using a short time window (`error_wait_ms`).
+message using a short time window (`error_wait_ms`). The "channel not found" error (26) doesn't
+name the channel either, so the bridge lists the joins the server didn't confirm; channels that
+are gone for sure aren't rejoined anymore.
 
 Link previews: links to F-List are shown in inline code and ads as quotes, because Element doesn't
 generate previews there. Links that open chats and channels are in inline code as well. Messages also carry an empty `com.beeper.linkpreviews` list (MSC4095)
@@ -196,12 +198,13 @@ More commands (in portal rooms, use the `!fchat` prefix):
 | `auto-ad [<minutes> <text>\|stop]` | Post an ad now and then every N minutes (at least 10) for 3 hours; without arguments: list the running ads |
 | `ads [room\|character] [on\|off\|default]` | Show or hide ads: in a channel room for that room, elsewhere for the character (without arguments: show the settings) |
 | `find-partners kinks: … [; genders: …; limit: N]` | Find online characters (without arguments: help and the possible values) |
+| `find-matches` (`matches`)     | The 5 online characters whose profiles match your character's best (takes about a minute, up to 3 when F-Chat or F-List limit requests; the bridge waits and tries again). Candidates come from character searches for your favorite kinks among everyone online; kinks, gender and orientation, language, furry preference, dom/sub role and position are compared |
 | `profile [character]`                           | Overview of an F-List profile: status, all filled-in profile fields (general, RP preferences, sexual and contact details), kinks, kink match with your character, your memo and the start of the description. Works in any room and is only visible to you; in a private chat the character is optional |
 | `memo [character] [= text]`    | Show, set or (with an empty text) delete your private memo about a character |
 | `friend <add\|remove\|accept\|deny\|cancel> [character]` | Friend requests and friendships                          |
 | `friend-requests`              | List incoming and sent friend requests                           |
 | `bookmark <add\|remove> [character]` | Add or remove a bookmark                                  |
-| `online-alerts [on\|off\|default]` | Notices when friends or bookmarks come online (per character) |
+| `online-alerts [character\|chat\|for <character>] [on\|off\|default]` | Notices when characters come online: for friends and bookmarks per character, or for one character per private chat (also for non-friends; `off` silences a friend). Without a scope, a private chat changes that chat |
 | `server-info`                  | Characters online and server uptime                              |
 | `ignore [remove] <character>`  | Edit your ignore list                                            |
 | `reconnect`                    | Reconnect (e.g. after "logged in at another location")           |

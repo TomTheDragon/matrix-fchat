@@ -486,6 +486,7 @@ func (c *FChatClient) handleJoin(join *fchat.JoinChannel) {
 	userID := makeUserID(name)
 	title := bbcode.DecodeEntities(join.Title)
 	if userID == c.ownID {
+		c.joinConfirmed(join.Channel)
 		c.stateLock.Lock()
 		if _, ok := c.channels[join.Channel]; !ok {
 			c.channels[join.Channel] = &channelState{
@@ -918,6 +919,10 @@ func (c *FChatClient) handleRealtimeBridge(rtb *fchat.RealtimeBridge) {
 func (c *FChatClient) handleUnsolicitedError(fcErr *fchat.Error) {
 	c.log.Warn().Int("code", fcErr.Code).Str("message", fcErr.Message).Msg("Received error from F-Chat")
 	if fcErr.Code == fchat.ErrCodeAlreadyInChannel && c.rejoining.Load() {
+		return
+	}
+	if fcErr.Code == fchat.ErrCodeChannelNotFound {
+		c.handleChannelNotFound()
 		return
 	}
 	c.sendManagementNotice(c.ctx(), fmt.Sprintf("**F-Chat error %d:** %s", fcErr.Code, fcErr.Message))

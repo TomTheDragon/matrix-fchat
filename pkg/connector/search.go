@@ -67,6 +67,8 @@ type searchOptions struct {
 	Infotags []profileInfotag
 	// InfotagGroups maps infotag group IDs to their names.
 	InfotagGroups map[string]string
+	// InfotagByList maps list names (like "gender" or "subdom") to the ID of the list infotag.
+	InfotagByList map[string]string
 	fetched       time.Time
 }
 
@@ -114,7 +116,11 @@ func (fc *FChatConnector) getSearchOptions(ctx context.Context) (*searchOptions,
 	for _, group := range mapping.InfotagGroups {
 		opts.InfotagGroups[group.ID] = html.UnescapeString(group.Name)
 	}
+	opts.InfotagByList = make(map[string]string)
 	for _, tag := range mapping.Infotags {
+		if tag.Type == "list" && tag.List != "" {
+			opts.InfotagByList[tag.List] = tag.ID
+		}
 		opts.Infotags = append(opts.Infotags, profileInfotag{
 			ID: tag.ID, Name: html.UnescapeString(tag.Name), IsList: tag.Type == "list", Group: tag.GroupID,
 		})

@@ -3,6 +3,9 @@ package connector
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
+	"strings"
 	"time"
 
 	"maunium.net/go/mautrix/bridgev2"
@@ -133,6 +136,10 @@ func (c *FChatClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridgev2
 	return nil
 }
 
+// Online alerts are decided by, in order: the setting of the private chat with the character
+// (which works for any character), the setting of the logged-in character and the
+// online_alerts config option (both only for friends and bookmarks).
+
 // onlineAlertsEnabled returns the character's online alert setting, falling back to the config.
 func (c *FChatClient) onlineAlertsEnabled() bool {
 	c.metaLock.Lock()
@@ -143,53 +150,148 @@ func (c *FChatClient) onlineAlertsEnabled() bool {
 	return c.Main.Config.OnlineAlerts
 }
 
-// sendOnlineAlert tells the user that a friend or bookmark came online.
+// chatOnlineAlert returns the online alert setting of the private chat with a character.
+func (c *FChatClient) chatOnlineAlert(userID networkid.UserID) (enabled, ok bool) {
+	c.metaLock.Lock()
+	defer c.metaLock.Unlock()
+	enabled, ok = c.meta().ChatOnlineAlerts[string(userID)]
+	return
+}
+
+// setChatOnlineAlert changes the online alert setting of a private chat (nil = default).
+func (c *FChatClient) setChatOnlineAlert(ctx context.Context, userID networkid.UserID, setting *bool) error {
+	c.metaLock.Lock()
+	defer c.metaLock.Unlock()
+	meta := c.meta()
+	if setting == nil {
+		delete(meta.ChatOnlineAlerts, string(userID))
+	} else {
+		if meta.ChatOnlineAlerts == nil {
+			meta.ChatOnlineAlerts = make(map[string]bool)
+		}
+		meta.ChatOnlineAlerts[string(userID)] = *setting
+	}
+	return c.UserLogin.Save(ctx)
+}
+
+// wantsOnlineAlert returns whether the user wants to know when a character comes online,
+// and how the character is related to the user (for the alert text).
+func (c *FChatClient) wantsOnlineAlert(userID networkid.UserID) (bool, string) {
+	c.stateLock.RLock()
+	_, isFriend := c.friends[userID]
+	_, isBookmark := c.bookmarks[userID]
+	c.stateLock.RUnlock()
+	kind := ""
+	switch {
+	case isFriend:
+		kind = "Your friend "
+	case isBookmark:
+		kind = "Your bookmark "
+	}
+	if enabled, ok := c.chatOnlineAlert(userID); ok {
+		return enabled, kind
+	}
+	return (isFriend || isBookmark) && c.onlineAlertsEnabled(), kind
+}
+
+// sendOnlineAlert tells the user that a character they want alerts for came online.
 func (c *FChatClient) sendOnlineAlert(userID networkid.UserID, name string, status fchat.Status) {
-	if !c.onlineAlertsEnabled() {
+	want, kind := c.wantsOnlineAlert(userID)
+	if !want {
 		return
 	}
 	c.stateLock.Lock()
-	_, isFriend := c.friends[userID]
-	_, isBookmark := c.bookmarks[userID]
 	last := c.lastOnlineAlert[userID]
-	if (!isFriend && !isBookmark) || time.Since(last) < onlineAlertCooldown {
+	if time.Since(last) < onlineAlertCooldown {
 		c.stateLock.Unlock()
 		return
 	}
 	c.lastOnlineAlert[userID] = time.Now()
 	c.stateLock.Unlock()
-	kind := "Your friend"
-	if !isFriend {
-		kind = "Your bookmark"
-	}
-	text := fmt.Sprintf("🟢 %s %s is now online", kind, name)
+	text := fmt.Sprintf("🟢 %s%s is now online", kind, name)
 	if status != "" && status != fchat.StatusOnline {
 		text += fmt.Sprintf(" (%s)", status)
 	}
 	c.sendDMNotice(c.ctx(), userID, text, "")
 }
 
-const onlineAlertsUsage = "**Usage:** `$cmdprefix online-alerts [on|off|default]` – get a notice when a friend or bookmark comes online"
+const onlineAlertsUsage = "**Usage:**\n\n" +
+	"* `$cmdprefix online-alerts character [on|off|default]` – alerts when a friend or bookmark of the character comes online\n" +
+	"* `$cmdprefix online-alerts chat [on|off|default]` – in a private chat: alerts when that character comes online " +
+	"(works for everyone, not only friends and bookmarks; `off` turns them off for a friend or bookmark)\n" +
+	"* `$cmdprefix online-alerts for <character> [on|off|default]` – the same for any character, from any room\n\n" +
+	"Without `character`, `chat` or `for`, a private chat changes the chat's setting and other rooms the character's setting."
 
 func (fc *FChatConnector) cmdOnlineAlerts(ce *commands.Event) {
 	client := fc.clientFor(ce)
 	if client == nil {
 		return
 	}
-	character := client.meta().Character
-	if len(ce.Args) == 0 {
-		msg := fmt.Sprintf("Online alerts for **%s**: %s", character, onOff(client.onlineAlertsEnabled()))
-		if client.meta().OnlineAlerts == nil {
-			msg += " (bridge default)"
+	args := ce.Args
+	dmName := fc.dmPartnerName(ce, client)
+	scope, target := "character", ""
+	if dmName != "" {
+		scope, target = "chat", dmName
+	}
+	if len(args) > 0 {
+		switch strings.ToLower(args[0]) {
+		case "character", "char", "global", "all":
+			scope, target, args = "character", "", args[1:]
+		case "chat", "here", "room", "dm":
+			if dmName == "" {
+				ce.Reply("Use `$cmdprefix online-alerts chat …` in a private chat, or `$cmdprefix online-alerts for <character> …`")
+				return
+			}
+			scope, target, args = "chat", dmName, args[1:]
+		case "for":
+			// The character name can contain spaces, the setting is the last word.
+			rest := args[1:]
+			if len(rest) > 1 {
+				if _, ok := parseAdSetting(rest[len(rest)-1]); ok {
+					target, args = strings.Join(rest[:len(rest)-1], " "), rest[len(rest)-1:]
+				}
+			}
+			if target == "" {
+				target, args = strings.Join(rest, " "), nil
+			}
+			if target == "" {
+				ce.Reply(onlineAlertsUsage)
+				return
+			}
+			scope = "chat"
 		}
-		ce.Reply(msg + "\n\n" + onlineAlertsUsage)
+	}
+	character := client.meta().Character
+
+	if len(args) == 0 {
+		ce.Reply(client.describeOnlineAlerts(scope, target) + "\n\n" + onlineAlertsUsage)
 		return
 	}
-	setting, ok := parseAdSetting(ce.Args[0])
-	if !ok || len(ce.Args) > 1 {
+	setting, ok := parseAdSetting(args[0])
+	if !ok || len(args) > 1 {
 		ce.Reply(onlineAlertsUsage)
 		return
 	}
+
+	if scope == "chat" {
+		userID := makeUserID(target)
+		if userID == "" || userID == client.ownID {
+			ce.Reply("Invalid character name")
+			return
+		}
+		if err := client.setChatOnlineAlert(ce.Ctx, userID, setting); err != nil {
+			ce.Reply("Failed to save the setting: %v", err)
+			return
+		}
+		want, _ := client.wantsOnlineAlert(userID)
+		msg := fmt.Sprintf("Online alerts for **%s** are now %s", target, onOff(want))
+		if setting == nil {
+			msg += " (following the setting of " + character + ")"
+		}
+		ce.Reply(msg)
+		return
+	}
+
 	client.metaLock.Lock()
 	client.meta().OnlineAlerts = setting
 	err := client.UserLogin.Save(ce.Ctx)
@@ -198,7 +300,41 @@ func (fc *FChatConnector) cmdOnlineAlerts(ce *commands.Event) {
 		ce.Reply("Failed to save the setting: %v", err)
 		return
 	}
-	ce.Reply("Online alerts for **%s** are now %s", character, onOff(client.onlineAlertsEnabled()))
+	ce.Reply("Online alerts for friends and bookmarks of **%s** are now %s. Private chats with their own setting aren't affected.",
+		character, onOff(client.onlineAlertsEnabled()))
+}
+
+// describeOnlineAlerts shows the current online alert settings.
+func (c *FChatClient) describeOnlineAlerts(scope, target string) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "Online alerts for friends and bookmarks of **%s**: %s", c.meta().Character, onOff(c.onlineAlertsEnabled()))
+	if c.meta().OnlineAlerts == nil {
+		out.WriteString(" (bridge default)")
+	}
+	if scope == "chat" {
+		userID := makeUserID(target)
+		want, _ := c.wantsOnlineAlert(userID)
+		fmt.Fprintf(&out, "\n\nOnline alerts for **%s**: %s", target, onOff(want))
+		if _, ok := c.chatOnlineAlert(userID); !ok {
+			out.WriteString(" (character setting)")
+		}
+	}
+	c.metaLock.Lock()
+	settings := maps.Clone(c.meta().ChatOnlineAlerts)
+	c.metaLock.Unlock()
+	overrides := make([]string, 0, len(settings))
+	for userID, enabled := range settings {
+		name := c.characterName(networkid.UserID(userID))
+		if name == "" {
+			name = userID
+		}
+		overrides = append(overrides, fmt.Sprintf("%s: %s", name, onOff(enabled)))
+	}
+	if len(overrides) > 0 {
+		slices.Sort(overrides)
+		out.WriteString("\n\nCharacters with their own setting: " + strings.Join(overrides, " · "))
+	}
+	return out.String()
 }
 
 func onOff(on bool) string {

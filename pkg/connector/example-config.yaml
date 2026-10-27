@@ -49,7 +49,8 @@ auto_idle_minutes: 0
 
 # Should you get a notice when a friend or bookmarked character comes online? The notice is
 # posted into the private chat with the character, or into the management room if there is
-# none. Users can change it per character with the `online-alerts` command.
+# none. Users can change it per character with the `online-alerts` command, and turn alerts on
+# or off for single characters (also ones that aren't friends) in their private chats.
 online_alerts: false
 
 # Should the bridge load the F-List profiles of characters (gender, species, age,

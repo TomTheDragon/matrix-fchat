@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -140,5 +141,21 @@ func TestFriendRequestsAndMemos(t *testing.T) {
 	var apiErr *APIError
 	if err = api.AcceptFriendRequest(ctx, "acc", "t", 12); !errors.As(err, &apiErr) || gotForm["request_id"] != "12" {
 		t.Errorf("AcceptFriendRequest: %v (form %v)", err, gotForm)
+	}
+}
+
+func TestIsRateLimited(t *testing.T) {
+	cases := map[error]bool{
+		&HTTPStatusError{StatusCode: 429}:                            true,
+		&HTTPStatusError{StatusCode: 503}:                            true,
+		&HTTPStatusError{StatusCode: 404}:                            false,
+		&APIError{Message: "Too many requests"}:                      true,
+		&APIError{Message: "Character not found."}:                   false,
+		fmt.Errorf("wrapped: %w", &HTTPStatusError{StatusCode: 429}): true,
+	}
+	for err, want := range cases {
+		if got := IsRateLimited(err); got != want {
+			t.Errorf("IsRateLimited(%v) = %v, want %v", err, got, want)
+		}
 	}
 }

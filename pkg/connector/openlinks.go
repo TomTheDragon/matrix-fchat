@@ -211,7 +211,7 @@ func (c *FChatClient) openRoom(ctx context.Context, kind byte, target string) (i
 			return "", fchat.ErrNotConnected
 		}
 		// The portal is created when the server confirms the join.
-		if err = c.Conn.Send(ctx, fchat.CmdJoinChannel, &fchat.ChannelRequest{Channel: target}); err != nil {
+		if err = c.sendJoin(ctx, target); err != nil {
 			return "", err
 		}
 	case openKindDM:

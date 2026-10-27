@@ -31,6 +31,9 @@ type UserLoginMetadata struct {
 
 	// OnlineAlerts overrides the online_alerts config option for this character (nil = use the config).
 	OnlineAlerts *bool `json:"online_alerts,omitempty"`
+	// ChatOnlineAlerts are the online alert settings of private chats, by user ID. They override
+	// OnlineAlerts and also work for characters that aren't friends or bookmarks.
+	ChatOnlineAlerts map[string]bool `json:"chat_online_alerts,omitempty"`
 
 	// AutoAds are the ads that are posted again and again, by channel.
 	AutoAds map[string]*autoAd `json:"auto_ads,omitempty"`

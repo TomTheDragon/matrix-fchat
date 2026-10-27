@@ -68,6 +68,8 @@ type FChatClient struct {
 	ownProfile        *fchat.CharacterData
 	ownProfileFetched time.Time
 	ownProfileLock    sync.Mutex
+	// matches holds the state of find-matches.
+	matches matchState
 
 	idleLock sync.Mutex
 	idle     idleState
@@ -83,6 +85,8 @@ type FChatClient struct {
 	// rejoining is set while the bridge rejoins channels after connecting, to
 	// suppress "already in channel" errors.
 	rejoining atomic.Bool
+	// channelErrs matches "channel not found" errors to the joins that caused them.
+	channelErrs channelErrorState
 
 	firstConnectLock sync.Mutex
 	firstConnect     chan error
@@ -284,7 +288,7 @@ func (c *FChatClient) rejoinChannels(ctx context.Context) {
 	defer c.rejoining.Store(false)
 	c.log.Debug().Strs("channels", channels).Msg("Rejoining channels")
 	for _, channel := range channels {
-		if err := c.Conn.Send(ctx, fchat.CmdJoinChannel, &fchat.ChannelRequest{Channel: channel}); err != nil {
+		if err := c.sendJoin(ctx, channel); err != nil {
 			c.log.Warn().Err(err).Str("channel", channel).Msg("Failed to rejoin channel")
 			return
 		}

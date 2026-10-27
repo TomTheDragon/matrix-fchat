@@ -36,6 +36,35 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("F-List API error from %s: %s", e.Endpoint, e.Message)
 }
 
+// HTTPStatusError is an unexpected HTTP status from the F-List API.
+type HTTPStatusError struct {
+	Endpoint   string
+	StatusCode int
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("unexpected HTTP status %d from %s", e.StatusCode, e.Endpoint)
+}
+
+// IsRateLimited returns true when F-List asked the client to slow down: HTTP 429 or 503, or an
+// API error about too many requests.
+func IsRateLimited(err error) bool {
+	var statusErr *HTTPStatusError
+	if errors.As(err, &statusErr) {
+		return statusErr.StatusCode == http.StatusTooManyRequests || statusErr.StatusCode == http.StatusServiceUnavailable
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		msg := strings.ToLower(apiErr.Message)
+		for _, hint := range []string{"too many", "rate limit", "slow down", "flood", "try again later"} {
+			if strings.Contains(msg, hint) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 type Friend struct {
 	DestName   string `json:"dest_name"`
 	SourceName string `json:"source_name"`
@@ -89,7 +118,7 @@ func (api *API) post(ctx context.Context, endpoint string, form url.Values, into
 		return fmt.Errorf("failed to read response from %s: %w", endpoint, err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected HTTP status %d from %s", resp.StatusCode, endpoint)
+		return &HTTPStatusError{Endpoint: endpoint, StatusCode: resp.StatusCode}
 	}
 	if err = json.Unmarshal(body, into); err != nil {
 		return fmt.Errorf("failed to parse response from %s: %w", endpoint, err)
