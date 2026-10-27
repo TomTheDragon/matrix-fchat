@@ -10,7 +10,7 @@ built on [mautrix-go bridgev2](https://pkg.go.dev/maunium.net/go/mautrix/bridgev
 | Public channels and private rooms (ADH-…)       | One Matrix room per channel and login                                    |
 | Private messages (PRI)                          | DM rooms, started with `start-chat <character>`; messages to offline characters are sent when they come online (`queue_offline_messages`), and the notice about it is edited once they're sent |
 | BBCode (b, i, u, s, sup, sub, color, url, user, icon, eicon, spoiler, noparse, session) | HTML formatting, in both directions           |
-| `[eicon]` and emoticons (`:heart:`, `:lif-smile:`, …) | Inline images (uploaded to Matrix once and cached); messages with only eicons are sent as stickers, so animated eicons play |
+| `[eicon]` and emoticons (`:heart:`, `:lif-smile:`, …) | Inline images (uploaded to Matrix once and cached); messages with only eicons are sent as one sticker (several eicons are combined into one image), so animated eicons play |
 | `[icon]`                                        | Avatar image linked to the F-List profile, then 💬 (opens the private chat) |
 | `[user]` names                                  | Name in the F-Chat gender color linked to the F-List profile, then 💬 (opens the private chat) |
 | Character profiles                              | Ghost biography (profile summary + link to the F-List profile), pronouns and name color (see [Profile fields](#profile-fields)) |
@@ -50,8 +50,10 @@ generate previews there. Links that open chats and channels are in inline code a
 when they only contain F-List links (and always for ads), which clients that support it respect.
 
 Element only plays animated images (eicons) in image and sticker events, never in formatted text.
-That's why messages that only contain eicons are sent as stickers (Element plays them on hover,
-or always with "Autoplay GIFs" enabled), while eicons mixed with text stay still images in Element.
+That's why messages that only contain eicons are sent as a sticker (Element plays it on hover, or
+always with "Autoplay GIFs" enabled), while eicons mixed with text stay still images in Element.
+A sticker holds one image, so several eicons are combined into one image: an animated GIF if one
+of them is animated (GIFs have no semi-transparency, so soft edges look a bit rougher).
 
 Matrix clients choose the colors of member names themselves, so room members can't get their
 F-Chat gender colors. Names in lists and `[user]` tags in messages are colored instead.
@@ -135,11 +137,8 @@ namespaces:
 Without the namespace, the links show an "alias not found" error; the `join` and `start-chat`
 commands still work.
 
-The links point to `https://app.element.io/#/room/<alias>` by default (`open_link_prefix`).
-Element Web and Desktop open them in the app. matrix.to links don't work well there: Element
-replaces them with a pill that shows the long alias instead of the 💬, even inside inline code.
-Set `open_link_prefix` to your own Element Web address, or to an empty string for matrix.to links
-(better for other clients).
+The links are matrix.to links, so they work in every client. Element may show them as a pill
+with the room's name (or the alias, if you're not in that room yet) instead of the 💬.
 
 ## Docker
 
@@ -197,12 +196,23 @@ More commands (in portal rooms, use the `!fchat` prefix):
 | `auto-ad [<minutes> <text>\|stop]` | Post an ad now and then every N minutes (at least 10) for 3 hours; without arguments: list the running ads |
 | `ads [room\|character] [on\|off\|default]` | Show or hide ads: in a channel room for that room, elsewhere for the character (without arguments: show the settings) |
 | `find-partners kinks: … [; genders: …; limit: N]` | Find online characters (without arguments: help and the possible values) |
-| `profile [character]`                           | Short overview of an F-List profile (summary, kinks, kink match with your character, your memo, description, status). Works in any room and is only visible to you; in a private chat the character is optional |
+| `profile [character]`                           | Overview of an F-List profile: status, all filled-in profile fields (general, RP preferences, sexual and contact details), kinks, kink match with your character, your memo and the start of the description. Works in any room and is only visible to you; in a private chat the character is optional |
 | `memo [character] [= text]`    | Show, set or (with an empty text) delete your private memo about a character |
 | `friend <add\|remove\|accept\|deny\|cancel> [character]` | Friend requests and friendships                          |
 | `friend-requests`              | List incoming and sent friend requests                           |
 | `bookmark <add\|remove> [character]` | Add or remove a bookmark                                  |
 | `online-alerts [on\|off\|default]` | Notices when friends or bookmarks come online (per character) |
+| `server-info`                  | Characters online and server uptime                              |
+| `ignore [remove] <character>`  | Edit your ignore list                                            |
+| `reconnect`                    | Reconnect (e.g. after "logged in at another location")           |
+
+Commands that take a character also work in the private chat with that character without it
+(`profile`, `memo`, `friend`, `bookmark`).
+
+Channel and room administration (in a channel room; most need channel op or owner rights on F-Chat):
+
+| Command                        | Description                                                      |
+|--------------------------------|------------------------------------------------------------------|
 | `invite <character>`           | Invite a character to the current private room                   |
 | `kick`, `ban`, `unban <character>` | Channel moderation (channel ops)                             |
 | `timeout <minutes> <character>` | Time out a character for 1 to 90 minutes (channel ops)          |
@@ -210,12 +220,6 @@ More commands (in portal rooms, use the `!fchat` prefix):
 | `op`, `deop`, `set-owner <character>` | Change channel ops and the owner (channel owner)          |
 | `channel-mode <chat\|ads\|both>` | Which messages the channel accepts (channel owner)             |
 | `room-visibility <public\|private>` | Open the private room to everyone or make it invite-only (room owner) |
-| `server-info`                  | Characters online and server uptime                              |
-| `ignore [remove] <character>`  | Edit your ignore list                                            |
-| `reconnect`                    | Reconnect (e.g. after "logged in at another location")           |
-
-Commands that take a character also work in the private chat with that character without it
-(`profile`, `memo`, `friend`, `bookmark`).
 
 Outside of portal rooms, commands apply to your default login; in a portal room, they apply to
 the character that owns the room.

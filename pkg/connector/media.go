@@ -16,6 +16,8 @@ import (
 
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/id"
+
+	"matrix-fchat/pkg/fchat"
 )
 
 // Matrix clients only show mxc:// images inline, so eicons and emoticons are
@@ -133,6 +135,72 @@ func (fc *FChatConnector) image(ctx context.Context, url string) *cachedImage {
 		fc.Bridge.DB.KV.Set(ctx, kvKey, string(encoded))
 	}
 	fc.images.set(url, img)
+	return img
+}
+
+// combinedEIcons returns one image with several eicons next to each other, uploaded to Matrix.
+// Combinations are cached like single images. It returns nil if an eicon can't be loaded.
+func (fc *FChatConnector) combinedEIcons(ctx context.Context, names []string) *cachedImage {
+	if len(names) > maxCombinedEIcons {
+		return nil
+	}
+	lower := make([]string, len(names))
+	for i, name := range names {
+		lower[i] = strings.ToLower(name)
+	}
+	key := "eicons:" + strings.Join(lower, "|")
+	if img, failed := fc.images.get(key); img != nil || failed {
+		return img
+	}
+	kvKey := database.Key(imageCacheKeyPrefix + key)
+	if stored := fc.Bridge.DB.KV.Get(ctx, kvKey); stored != "" {
+		var img cachedImage
+		if err := json.Unmarshal([]byte(stored), &img); err == nil && img.MXC != "" {
+			fc.images.set(key, &img)
+			return &img
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, imageTimeout)
+	defer cancel()
+	log := fc.Bridge.Log.With().Strs("eicons", names).Logger()
+	sources := make([][]animFrame, len(names))
+	decoded := make(map[string][]animFrame)
+	for i, name := range lower {
+		if frames, ok := decoded[name]; ok {
+			sources[i] = frames
+			continue
+		}
+		data, err := fc.download(ctx, fchat.EIconURL(fc.Config.StaticURL, name))
+		if err == nil {
+			sources[i], err = decodeFrames(data, eiconCell)
+		}
+		if err != nil {
+			log.Debug().Err(err).Str("eicon", name).Msg("Failed to load eicon for combined image")
+			fc.images.set(key, nil)
+			return nil
+		}
+		decoded[name] = sources[i]
+	}
+	data, mimeType, width, height, animated, err := combineEIcons(sources, eiconCell)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to combine eicons")
+		fc.images.set(key, nil)
+		return nil
+	}
+	img := &cachedImage{MimeType: mimeType, Width: width, Height: height, Size: len(data), Animated: animated}
+	fileName := "eicons.png"
+	if animated {
+		fileName = "eicons.gif"
+	}
+	img.MXC, _, err = fc.Bridge.Bot.UploadMedia(ctx, "", data, fileName, mimeType)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to upload combined eicons")
+		return nil
+	}
+	if encoded, err := json.Marshal(img); err == nil {
+		fc.Bridge.DB.KV.Set(ctx, kvKey, string(encoded))
+	}
+	fc.images.set(key, img)
 	return img
 }
 

@@ -104,18 +104,12 @@ func (fc *FChatConnector) openLink(login networkid.UserLoginID, kind byte, targe
 		return ""
 	}
 	alias := "#" + makeOpenAliasLocalpart(key, kind, login, target) + ":" + fc.Bridge.Matrix.ServerName()
-	return openLinkURL(fc.Config.OpenLinkPrefix, alias)
+	return openLinkURL(alias)
 }
 
-// openLinkURL makes a link to the alias, starting with the prefix (matrix.to if empty).
-// Element replaces matrix.to links with pills that show the alias instead of the link text,
-// even inside <code>, so the default prefix is an Element Web link, which Element opens in
-// the app without making it a pill.
-func openLinkURL(prefix, alias string) string {
-	if prefix == "" {
-		prefix = "https://matrix.to/#/"
-	}
-	return prefix + strings.ReplaceAll(alias, "#", "%23")
+// openLinkURL makes a matrix.to link to the alias.
+func openLinkURL(alias string) string {
+	return "https://matrix.to/#/" + alias
 }
 
 // channelLink returns a link that joins a channel and opens its room.

@@ -17,10 +17,23 @@ import (
 )
 
 const (
-	maxProfileFavorites      = 10
-	maxProfileDescription    = 400
+	maxProfileFavorites      = 30
+	maxProfileYes            = 20
+	maxProfileDescription    = 800
+	maxProfileFieldLength    = 300
 	profileCommandAvatarSize = 64
 )
+
+// profileGroupOrder is the order of the infotag groups on F-List profiles: general details,
+// RP preferences, sexual details and contact details/sites.
+var profileGroupOrder = []string{"3", "5", "2", "1"}
+
+// profileInfotag is a profile field from the F-List mapping list.
+type profileInfotag struct {
+	ID, Name string
+	IsList   bool
+	Group    string
+}
 
 // cmdProfile shows a short overview of a character's F-List profile. The reply is sent by
 // the bridge bot into the room the command was used in; portal rooms only have the user
@@ -90,6 +103,8 @@ func (c *FChatClient) profileOverview(ctx context.Context, name string) (*event.
 		Data:      data,
 		ListItems: opts.ListItems,
 		KinkNames: opts.KinkNames,
+		Infotags:  opts.Infotags,
+		Groups:    opts.InfotagGroups,
 		Memo:      strings.TrimSpace(bbcode.DecodeEntities(memo)),
 	}
 	if userID != c.ownID {
@@ -117,50 +132,142 @@ type profileView struct {
 	StatusMsg                      string
 	Data                           *fchat.CharacterData
 	ListItems, KinkNames           map[string]string
+	Infotags                       []profileInfotag
+	// Groups maps infotag group IDs to their names.
+	Groups map[string]string
 	// Memo is the user's private memo about the character.
 	Memo string
 	// Match compares the kinks with the user's character (nil for the own character).
 	Match *kinkMatch
 }
 
-// kinkSummary counts the kinks per choice and returns the names of the favorites.
-func (v *profileView) kinkSummary() (counts map[string]int, favorites []string) {
-	counts = make(map[string]int)
-	for id, choice := range v.Data.Kinks {
-		counts[choice]++
-		if choice == "fave" {
-			if name := v.KinkNames[id]; name != "" {
-				favorites = append(favorites, name)
-			}
+// profileField is a filled-in profile field.
+type profileField struct{ Name, Value string }
+
+// fieldGroup is the filled-in fields of an infotag group.
+type fieldGroup struct {
+	Name   string
+	Fields []profileField
+}
+
+// fieldGroups returns the filled-in profile fields, grouped like on the F-List profile page.
+func (v *profileView) fieldGroups() []fieldGroup {
+	byGroup := make(map[string][]profileField)
+	for _, tag := range v.Infotags {
+		raw := strings.TrimSpace(v.Data.Infotags[tag.ID])
+		if tag.IsList {
+			raw = v.ListItems[raw]
 		}
+		value := strings.TrimSpace(bbcode.ToPlain(bbcode.DecodeEntities(raw)))
+		value = strings.Join(strings.Fields(value), " ")
+		if value == "" {
+			continue
+		}
+		byGroup[tag.Group] = append(byGroup[tag.Group], profileField{Name: tag.Name, Value: truncateRunes(value, maxProfileFieldLength)})
+	}
+	var groups []fieldGroup
+	addGroup := func(id string) {
+		if fields := byGroup[id]; len(fields) > 0 {
+			name := v.Groups[id]
+			if name == "" {
+				name = "Details"
+			}
+			groups = append(groups, fieldGroup{Name: name, Fields: fields})
+			delete(byGroup, id)
+		}
+	}
+	for _, id := range profileGroupOrder {
+		addGroup(id)
+	}
+	rest := make([]string, 0, len(byGroup))
+	for id := range byGroup {
+		rest = append(rest, id)
+	}
+	slices.Sort(rest)
+	for _, id := range rest {
+		addGroup(id)
+	}
+	return groups
+}
+
+// kinkLists counts the kinks per choice and returns the names of the favorite and "yes" kinks.
+func (v *profileView) kinkLists() (counts map[string]int, favorites, yes []string) {
+	counts = make(map[string]int)
+	add := func(choice, name string) {
+		counts[choice]++
+		if name == "" {
+			return
+		}
+		switch choice {
+		case "fave":
+			favorites = append(favorites, name)
+		case "yes":
+			yes = append(yes, name)
+		}
+	}
+	for id, choice := range v.Data.Kinks {
+		add(choice, v.KinkNames[id])
 	}
 	for _, kink := range v.Data.CustomKinks {
-		counts[kink.Choice]++
-		if kink.Choice == "fave" {
-			favorites = append(favorites, strings.TrimSpace(html.UnescapeString(kink.Name)))
-		}
+		add(kink.Choice, strings.TrimSpace(html.UnescapeString(kink.Name)))
 	}
-	slices.SortFunc(favorites, func(a, b string) int { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) })
-	return counts, favorites
+	byName := func(a, b string) int { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) }
+	slices.SortFunc(favorites, byName)
+	slices.SortFunc(yes, byName)
+	return counts, favorites, yes
+}
+
+// limitList joins up to max names, adding "and N more".
+func limitList(names []string, limit int) string {
+	if len(names) <= limit {
+		return strings.Join(names, ", ")
+	}
+	return strings.Join(names[:limit], ", ") + fmt.Sprintf(" and %d more", len(names)-limit)
+}
+
+// profileWriter writes a profile overview as plain text and HTML.
+type profileWriter struct {
+	plain, html strings.Builder
+}
+
+// section writes a paragraph with an optional bold title and lines.
+func (w *profileWriter) section(title string, lines ...string) {
+	if len(lines) == 0 {
+		return
+	}
+	w.html.WriteString("<p>")
+	w.plain.WriteString("\n")
+	if title != "" {
+		fmt.Fprintf(&w.html, "<strong>%s</strong>", html.EscapeString(title))
+		w.plain.WriteString(title + "\n")
+	}
+	for i, line := range lines {
+		if i > 0 || title != "" {
+			w.html.WriteString("<br>")
+		}
+		w.html.WriteString(html.EscapeString(line))
+		w.plain.WriteString(line + "\n")
+	}
+	w.html.WriteString("</p>")
 }
 
 func (v *profileView) render() *event.MessageEventContent {
-	var plain, out strings.Builder
+	var w profileWriter
 	esc := html.EscapeString
 
 	// Header: avatar, name (linked to the profile), chat link and custom title.
-	out.WriteString("<p>")
+	w.html.WriteString("<p>")
 	if v.AvatarMXC != "" {
-		fmt.Fprintf(&out, `<img src="%s" alt="%s" title="%s" width="%d" height="%d"> `,
+		fmt.Fprintf(&w.html, `<img src="%s" alt="%s" title="%s" width="%d" height="%d"> `,
 			esc(v.AvatarMXC), esc(v.Name), esc(v.Name), profileCommandAvatarSize, profileCommandAvatarSize)
 	}
-	out.WriteString(renderName(v.Name, v.Gender, v.Profile, v.Chat))
-	plain.WriteString(v.Name)
+	w.html.WriteString(renderName(v.Name, v.Gender, v.Profile, v.Chat))
+	w.plain.WriteString(v.Name)
 	if title := strings.TrimSpace(html.UnescapeString(v.Data.CustomTitle)); title != "" {
-		fmt.Fprintf(&out, " – <em>%s</em>", esc(title))
-		plain.WriteString(" – " + title)
+		fmt.Fprintf(&w.html, " – <em>%s</em>", esc(title))
+		w.plain.WriteString(" – " + title)
 	}
-	plain.WriteString("\n")
+	w.plain.WriteString(" (" + v.Profile + ")\n")
 
 	// Online status.
 	statusLine := "Offline"
@@ -170,64 +277,45 @@ func (v *profileView) render() *event.MessageEventContent {
 			statusLine += " – " + truncateRunes(msg, maxBioStatusLength)
 		}
 	}
-	fmt.Fprintf(&out, "<br>%s</p>", esc(statusLine))
-	plain.WriteString(statusLine + "\n")
+	fmt.Fprintf(&w.html, "<br>%s</p>", esc(statusLine))
+	w.plain.WriteString(statusLine + "\n")
 
-	// Profile summary (gender, species, age, orientation, role, looking for).
-	if summary := profileSummary(v.Data, v.ListItems); summary != "" {
-		lines := strings.Split(summary, "\n")
-		escaped := make([]string, len(lines))
-		for i, line := range lines {
-			escaped[i] = esc(line)
+	// Profile fields, grouped like on F-List.
+	for _, group := range v.fieldGroups() {
+		lines := make([]string, len(group.Fields))
+		for i, field := range group.Fields {
+			lines[i] = field.Name + ": " + field.Value
 		}
-		fmt.Fprintf(&out, "<p>%s</p>", strings.Join(escaped, "<br>"))
-		plain.WriteString("\n" + summary + "\n")
+		w.section(group.Name, lines...)
 	}
 
 	// Kinks.
-	counts, favorites := v.kinkSummary()
+	counts, favorites, yes := v.kinkLists()
 	if len(counts) > 0 {
-		kinkLine := fmt.Sprintf("Kinks: %d favorite, %d yes, %d maybe, %d no",
-			counts["fave"], counts["yes"], counts["maybe"], counts["no"])
-		out.WriteString("<p>" + esc(kinkLine))
-		plain.WriteString("\n" + kinkLine + "\n")
+		lines := []string{fmt.Sprintf("%d favorite, %d yes, %d maybe, %d no",
+			counts["fave"], counts["yes"], counts["maybe"], counts["no"])}
 		if len(favorites) > 0 {
-			shown := favorites
-			more := ""
-			if len(shown) > maxProfileFavorites {
-				shown = shown[:maxProfileFavorites]
-				more = fmt.Sprintf(" and %d more", len(favorites)-maxProfileFavorites)
-			}
-			favLine := "Favorites: " + strings.Join(shown, ", ") + more
-			out.WriteString("<br>" + esc(favLine))
-			plain.WriteString(favLine + "\n")
+			lines = append(lines, "Favorites: "+limitList(favorites, maxProfileFavorites))
 		}
-		out.WriteString("</p>")
+		if len(yes) > 0 {
+			lines = append(lines, "Yes: "+limitList(yes, maxProfileYes))
+		}
+		w.section("Kinks", lines...)
 	}
 
 	// Kink match with the user's character.
 	if v.Match != nil && (v.Match.Shared > 0 || v.Match.Conflicts > 0) {
-		matchLine := v.Match.summary()
-		out.WriteString("<p>" + esc(matchLine))
-		plain.WriteString(matchLine + "\n")
+		lines := []string{v.Match.summary()}
 		if len(v.Match.BothFavorites) > 0 {
-			shown := v.Match.BothFavorites
-			more := ""
-			if len(shown) > maxProfileFavorites {
-				shown = shown[:maxProfileFavorites]
-				more = fmt.Sprintf(" and %d more", len(v.Match.BothFavorites)-maxProfileFavorites)
-			}
-			bothLine := "Favorites of both: " + strings.Join(shown, ", ") + more
-			out.WriteString("<br>" + esc(bothLine))
-			plain.WriteString(bothLine + "\n")
+			lines = append(lines, "Favorites of both: "+limitList(v.Match.BothFavorites, maxProfileFavorites))
 		}
-		out.WriteString("</p>")
+		w.section("", lines...)
 	}
 
 	// The user's memo.
 	if v.Memo != "" {
-		fmt.Fprintf(&out, "<p><strong>Your memo:</strong> %s</p>", strings.ReplaceAll(esc(v.Memo), "\n", "<br>"))
-		plain.WriteString("\nYour memo: " + v.Memo + "\n")
+		fmt.Fprintf(&w.html, "<p><strong>Your memo:</strong> %s</p>", strings.ReplaceAll(esc(v.Memo), "\n", "<br>"))
+		w.plain.WriteString("\nYour memo: " + v.Memo + "\n")
 	}
 
 	// Start of the description.
@@ -235,8 +323,8 @@ func (v *profileView) render() *event.MessageEventContent {
 	desc = strings.Join(strings.Fields(desc), " ")
 	if desc != "" {
 		desc = truncateRunes(desc, maxProfileDescription)
-		fmt.Fprintf(&out, "<blockquote>%s</blockquote>", esc(desc))
-		plain.WriteString("\n> " + desc + "\n")
+		fmt.Fprintf(&w.html, "<blockquote>%s</blockquote>", esc(desc))
+		w.plain.WriteString("\n> " + desc + "\n")
 	}
 
 	// Profile facts.
@@ -253,20 +341,15 @@ func (v *profileView) render() *event.MessageEventContent {
 	if v.Data.Images > 0 {
 		facts = append(facts, fmt.Sprintf("%d images", v.Data.Images))
 	}
-	out.WriteString("<p>")
 	if len(facts) > 0 {
-		factLine := "Profile " + strings.Join(facts, ", ")
-		out.WriteString(esc(factLine) + "<br>")
-		plain.WriteString("\n" + factLine + "\n")
+		w.section("", "Profile "+strings.Join(facts, ", "))
 	}
-	fmt.Fprintf(&out, `<code><a href="%s">Full profile on F-List</a></code></p>`, esc(v.Profile))
-	plain.WriteString(v.Profile)
 
 	content := &event.MessageEventContent{
 		MsgType:       event.MsgNotice,
-		Body:          plain.String(),
+		Body:          strings.TrimSpace(w.plain.String()),
 		Format:        event.FormatHTML,
-		FormattedBody: out.String(),
+		FormattedBody: w.html.String(),
 		Mentions:      &event.Mentions{},
 	}
 	disableLinkPreviews(content)

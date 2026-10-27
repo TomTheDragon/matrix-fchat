@@ -22,14 +22,6 @@ member_sync_limit: 200
 # per character and per room with the `ads` command.
 bridge_ads: false
 
-# Start of the links that join channels and open chats (like the 💬 links). The room alias
-# is appended to it. The default works in Element Web and Desktop, which open these links in
-# the app. Element shows matrix.to links as a pill with the long room alias instead of the
-# link text, but other clients may not open app.element.io links in the app. Use your own
-# Element Web address (like https://element.example.com/#/room/) if you have one.
-# Leave empty to use matrix.to links.
-open_link_prefix: https://app.element.io/#/room/
-
 # Should a DM room be created for every friend of the character? Rooms are created
 # after connecting and when a new friendship is confirmed, once per friend: if you
 # leave a friend's DM room, it isn't created again until you start a chat yourself.

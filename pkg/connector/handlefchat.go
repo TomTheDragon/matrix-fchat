@@ -7,7 +7,6 @@ import (
 	"html"
 	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -298,48 +297,53 @@ func (c *FChatClient) adMessage(text string) messageConverter {
 	}
 }
 
-// maxStickerSize is the maximum displayed width and height of eicon stickers.
-const maxStickerSize = 100
+// maxStickerSize is the maximum displayed width and height of eicon stickers (and of each
+// eicon in a combined sticker).
+const maxStickerSize = eiconCell
 
-// eiconStickers converts a message that only consists of eicons into stickers. Element only
+// eiconStickers converts a message that only consists of eicons into a sticker. Element only
 // plays animated GIFs in image and sticker events, inline images in formatted text are
-// always shown as still thumbnails. It returns nil if an eicon couldn't be loaded.
+// always shown as still thumbnails. A sticker holds one image, so several eicons are combined
+// into one image. It returns nil if an eicon couldn't be loaded.
 func (c *FChatClient) eiconStickers(ctx context.Context, names []string) []*bridgev2.ConvertedMessagePart {
-	parts := make([]*bridgev2.ConvertedMessagePart, 0, len(names))
-	for i, name := range names {
-		img := c.Main.image(ctx, fchat.EIconURL(c.Main.Config.StaticURL, name))
-		if img == nil {
-			return nil
-		}
-		width, height := img.Width, img.Height
-		if width <= 0 || height <= 0 {
-			width, height = maxStickerSize, maxStickerSize
-		} else if scale := float64(maxStickerSize) / float64(max(width, height)); scale < 1 {
+	var img *cachedImage
+	if len(names) == 1 {
+		img = c.Main.image(ctx, fchat.EIconURL(c.Main.Config.StaticURL, names[0]))
+	} else {
+		img = c.Main.combinedEIcons(ctx, names)
+	}
+	if img == nil {
+		return nil
+	}
+	width, height := img.Width, img.Height
+	switch {
+	case width <= 0 || height <= 0:
+		width, height = maxStickerSize, maxStickerSize
+	case len(names) == 1:
+		if scale := float64(maxStickerSize) / float64(max(width, height)); scale < 1 {
 			width, height = max(1, int(float64(width)*scale)), max(1, int(float64(height)*scale))
 		}
-		info := &event.FileInfo{
-			MimeType:   img.MimeType,
-			Width:      width,
-			Height:     height,
-			Size:       img.Size,
-			IsAnimated: img.Animated,
-		}
-		if img.Animated {
-			// Element reads the unstable key of MSC4230.
-			info.Extra = map[string]any{"org.matrix.msc4230.is_animated": true}
-		}
-		parts = append(parts, &bridgev2.ConvertedMessagePart{
-			ID:   networkid.PartID(strconv.Itoa(i)),
-			Type: event.EventSticker,
-			Content: &event.MessageEventContent{
-				Body:     name,
-				URL:      img.MXC,
-				Info:     info,
-				Mentions: &event.Mentions{},
-			},
-		})
 	}
-	return parts
+	info := &event.FileInfo{
+		MimeType:   img.MimeType,
+		Width:      width,
+		Height:     height,
+		Size:       img.Size,
+		IsAnimated: img.Animated,
+	}
+	if img.Animated {
+		// Element reads the unstable key of MSC4230.
+		info.Extra = map[string]any{"org.matrix.msc4230.is_animated": true}
+	}
+	return []*bridgev2.ConvertedMessagePart{{
+		Type: event.EventSticker,
+		Content: &event.MessageEventContent{
+			Body:     strings.Join(names, " "),
+			URL:      img.MXC,
+			Info:     info,
+			Mentions: &event.Mentions{},
+		},
+	}}
 }
 
 func (c *FChatClient) queueMessage(portalKey networkid.PortalKey, senderName string, convert messageConverter, createPortal bool) {

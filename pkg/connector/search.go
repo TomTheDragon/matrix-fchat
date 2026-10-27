@@ -63,7 +63,11 @@ type searchOptions struct {
 	ListItems map[string]string
 	// KinkNames maps kink IDs to their names.
 	KinkNames map[string]string
-	fetched   time.Time
+	// Infotags are the profile fields, in the order of the mapping list.
+	Infotags []profileInfotag
+	// InfotagGroups maps infotag group IDs to their names.
+	InfotagGroups map[string]string
+	fetched       time.Time
 }
 
 type searchOptionsCache struct {
@@ -105,6 +109,15 @@ func (fc *FChatConnector) getSearchOptions(ctx context.Context) (*searchOptions,
 				opts.Values[field.Key] = append(opts.Values[field.Key], html.UnescapeString(item.Value))
 			}
 		}
+	}
+	opts.InfotagGroups = make(map[string]string, len(mapping.InfotagGroups))
+	for _, group := range mapping.InfotagGroups {
+		opts.InfotagGroups[group.ID] = html.UnescapeString(group.Name)
+	}
+	for _, tag := range mapping.Infotags {
+		opts.Infotags = append(opts.Infotags, profileInfotag{
+			ID: tag.ID, Name: html.UnescapeString(tag.Name), IsList: tag.Type == "list", Group: tag.GroupID,
+		})
 	}
 	fc.searchOptions.options = opts
 	return opts, nil

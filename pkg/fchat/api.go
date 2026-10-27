@@ -233,11 +233,27 @@ type MappingList struct {
 		Description string `json:"description"`
 		GroupID     string `json:"group_id"`
 	} `json:"kinks"`
+	KinkGroups []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"kink_groups"`
 	ListItems []struct {
 		ID    string `json:"id"`
 		Name  string `json:"name"`
 		Value string `json:"value"`
 	} `json:"listitems"`
+	// Infotags are the fields of a profile. For "list" infotags, the value is a list item ID.
+	Infotags []struct {
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Type    string `json:"type"`
+		List    string `json:"list"`
+		GroupID string `json:"group_id"`
+	} `json:"infotags"`
+	InfotagGroups []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"infotag_groups"`
 	Error string `json:"error"`
 }
 

@@ -91,11 +91,7 @@ func TestGenderColor(t *testing.T) {
 }
 
 func TestOpenLinkURL(t *testing.T) {
-	alias := "#fchat_open_x:example.com"
-	if got := openLinkURL("https://app.element.io/#/room/", alias); got != "https://app.element.io/#/room/%23fchat_open_x:example.com" {
-		t.Errorf("got %q", got)
-	}
-	if got := openLinkURL("", alias); got != "https://matrix.to/#/%23fchat_open_x:example.com" {
+	if got := openLinkURL("#fchat_open_x:example.com"); got != "https://matrix.to/#/#fchat_open_x:example.com" {
 		t.Errorf("got %q", got)
 	}
 }

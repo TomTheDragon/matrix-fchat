@@ -14,7 +14,11 @@ import (
 	"matrix-fchat/pkg/fchat"
 )
 
-var HelpSectionFChat = commands.HelpSection{Name: "F-Chat", Order: 25}
+var (
+	HelpSectionFChat = commands.HelpSection{Name: "F-Chat", Order: 25}
+	// HelpSectionChannelAdmin is for commands of channel ops and owners.
+	HelpSectionChannelAdmin = commands.HelpSection{Name: "Channel and room administration", Order: 26}
+)
 
 func (fc *FChatConnector) commandHandlers() []commands.CommandHandler {
 	return []commands.CommandHandler{
@@ -174,7 +178,7 @@ func (fc *FChatConnector) commandHandlers() []commands.CommandHandler {
 			Func: fc.cmdInvite,
 			Name: "invite",
 			Help: commands.HelpMeta{
-				Section:     HelpSectionFChat,
+				Section:     HelpSectionChannelAdmin,
 				Description: "Invite a character to the current private room.",
 				Args:        "<_character_>",
 			},
@@ -259,7 +263,7 @@ func (fc *FChatConnector) commandHandlers() []commands.CommandHandler {
 			Func: fc.characterModCommand(fchat.CmdChannelKick, "kick <character>"),
 			Name: "kick",
 			Help: commands.HelpMeta{
-				Section:     HelpSectionFChat,
+				Section:     HelpSectionChannelAdmin,
 				Description: "Kick a character from the current channel (channel ops only).",
 				Args:        "<_character_>",
 			},
@@ -270,7 +274,7 @@ func (fc *FChatConnector) commandHandlers() []commands.CommandHandler {
 			Func: fc.characterModCommand(fchat.CmdChannelBan, "ban <character>"),
 			Name: "ban",
 			Help: commands.HelpMeta{
-				Section:     HelpSectionFChat,
+				Section:     HelpSectionChannelAdmin,
 				Description: "Ban a character from the current channel (channel ops only).",
 				Args:        "<_character_>",
 			},
@@ -281,7 +285,7 @@ func (fc *FChatConnector) commandHandlers() []commands.CommandHandler {
 			Func: fc.characterModCommand(fchat.CmdChannelUnban, "unban <character>"),
 			Name: "unban",
 			Help: commands.HelpMeta{
-				Section:     HelpSectionFChat,
+				Section:     HelpSectionChannelAdmin,
 				Description: "Remove a ban or timeout in the current channel (channel ops only).",
 				Args:        "<_character_>",
 			},
@@ -292,7 +296,7 @@ func (fc *FChatConnector) commandHandlers() []commands.CommandHandler {
 			Func: fc.cmdTimeout,
 			Name: "timeout",
 			Help: commands.HelpMeta{
-				Section:     HelpSectionFChat,
+				Section:     HelpSectionChannelAdmin,
 				Description: "Time out a character from the current channel for 1 to 90 minutes (channel ops only).",
 				Args:        "<_minutes_> <_character_>",
 			},
@@ -304,7 +308,7 @@ func (fc *FChatConnector) commandHandlers() []commands.CommandHandler {
 			Name:    "banlist",
 			Aliases: []string{"bans"},
 			Help: commands.HelpMeta{
-				Section:     HelpSectionFChat,
+				Section:     HelpSectionChannelAdmin,
 				Description: "Show the ban list of the current channel (channel ops only).",
 			},
 			RequiresLogin:  true,
@@ -314,7 +318,7 @@ func (fc *FChatConnector) commandHandlers() []commands.CommandHandler {
 			Func: fc.characterModCommand(fchat.CmdOpAdd, "op <character>"),
 			Name: "op",
 			Help: commands.HelpMeta{
-				Section:     HelpSectionFChat,
+				Section:     HelpSectionChannelAdmin,
 				Description: "Make a character a channel operator (channel owner only).",
 				Args:        "<_character_>",
 			},
@@ -325,7 +329,7 @@ func (fc *FChatConnector) commandHandlers() []commands.CommandHandler {
 			Func: fc.characterModCommand(fchat.CmdOpRemove, "deop <character>"),
 			Name: "deop",
 			Help: commands.HelpMeta{
-				Section:     HelpSectionFChat,
+				Section:     HelpSectionChannelAdmin,
 				Description: "Remove a channel operator (channel owner only).",
 				Args:        "<_character_>",
 			},
@@ -336,7 +340,7 @@ func (fc *FChatConnector) commandHandlers() []commands.CommandHandler {
 			Func: fc.characterModCommand(fchat.CmdSetOwner, "set-owner <character>"),
 			Name: "set-owner",
 			Help: commands.HelpMeta{
-				Section:     HelpSectionFChat,
+				Section:     HelpSectionChannelAdmin,
 				Description: "Give the current channel to another character (channel owner only).",
 				Args:        "<_character_>",
 			},
@@ -347,7 +351,7 @@ func (fc *FChatConnector) commandHandlers() []commands.CommandHandler {
 			Func: fc.cmdChannelMode,
 			Name: "channel-mode",
 			Help: commands.HelpMeta{
-				Section:     HelpSectionFChat,
+				Section:     HelpSectionChannelAdmin,
 				Description: "Set which messages the current channel accepts: chat, ads or both (channel owner only).",
 				Args:        "<chat|ads|both>",
 			},
@@ -358,7 +362,7 @@ func (fc *FChatConnector) commandHandlers() []commands.CommandHandler {
 			Func: fc.cmdRoomVisibility,
 			Name: "room-visibility",
 			Help: commands.HelpMeta{
-				Section:     HelpSectionFChat,
+				Section:     HelpSectionChannelAdmin,
 				Description: "Open the current private room to everyone (public) or make it invite-only (private). Room owner only.",
 				Args:        "<public|private>",
 			},
