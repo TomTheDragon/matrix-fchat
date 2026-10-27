@@ -4,6 +4,7 @@ package connector
 import (
 	"context"
 	"net/http"
+	"sync"
 	"time"
 
 	"maunium.net/go/mautrix/bridgev2"
@@ -23,6 +24,8 @@ const NetworkIcon id.ContentURIString = "mxc://foxyden.eu/AJenOiLFKYmxwrQgmGbrvb
 type FChatConnector struct {
 	Bridge *bridgev2.Bridge
 	Config Config
+	// openTokens caches the payloads of short open link tokens (token -> payload).
+	openTokens sync.Map
 
 	// Version is reported to the F-Chat server. It's set by main.
 	Version string

@@ -139,8 +139,10 @@ namespaces:
 Without the namespace, the links show an "alias not found" error; the `join` and `start-chat`
 commands still work.
 
-The links are matrix.to links, so they work in every client. Element may show them as a pill
-with the room's name (or the alias, if you're not in that room yet) instead of the 💬.
+The links are matrix.to links, so they work in every client. Element Web shows them as a pill
+with the room's name (or the short alias, if you're not in that room yet) instead of the link
+text, so the names in the lists are shown next to the links, not as their text. The aliases only
+contain a short token; the bridge stores what it stands for in its database.
 
 ## Docker
 

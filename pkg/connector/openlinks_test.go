@@ -95,3 +95,23 @@ func TestOpenLinkURL(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestShortOpenToken(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	payload := openPayload(openKindChannel, "my character", "ADH-0123456789abcdef0123")
+	token := openToken(key, payload)
+	if len(token) != 13 || strings.Contains(token, "_") {
+		t.Fatalf("unexpected token %q", token)
+	}
+	alias := "#" + openAliasPrefix + token + ":example.com"
+	if !regexp.MustCompile(OpenAliasRegex("example.com")).MatchString(alias) {
+		t.Fatalf("alias %q doesn't match the namespace", alias)
+	}
+	kind, login, target, ok := decodeOpenPayload(payload)
+	if !ok || kind != openKindChannel || login != "my character" || target != "ADH-0123456789abcdef0123" {
+		t.Fatalf("unexpected payload %q %q %q %v", kind, login, target, ok)
+	}
+	if openToken([]byte("other key"), payload) == token {
+		t.Error("token doesn't depend on the key")
+	}
+}

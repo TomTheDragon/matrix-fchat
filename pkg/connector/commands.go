@@ -536,21 +536,23 @@ func (fc *FChatConnector) sendChannelList(ce *commands.Event, client *FChatClien
 		}
 		fmt.Fprintf(&plain, " (%d characters%s)\n", entry.Characters, entry.Extra)
 
-		title := "<strong>" + html.EscapeString(entry.Title) + "</strong>"
-		if link := client.channelLink(entry.ID); link != "" {
-			// In <code>, so that Element doesn't generate link previews.
-			title = fmt.Sprintf(`<code><a href="%s">%s</a></code>`, html.EscapeString(link), title)
-		}
-		htmlOut.WriteString("<li>" + title)
+		// The name isn't part of the link: Element Web shows links to room aliases as pills with
+		// the alias as text, which would hide the name.
+		htmlOut.WriteString("<li><strong>" + html.EscapeString(entry.Title) + "</strong>")
 		if entry.ID != entry.Title {
 			fmt.Fprintf(&htmlOut, " – <code>%s</code>", html.EscapeString(entry.ID))
 		}
-		fmt.Fprintf(&htmlOut, " (%d characters%s)</li>\n", entry.Characters, html.EscapeString(entry.Extra))
+		fmt.Fprintf(&htmlOut, " (%d characters%s)", entry.Characters, html.EscapeString(entry.Extra))
+		if link := client.channelLink(entry.ID); link != "" {
+			// In <code>, so that Element doesn't generate link previews.
+			fmt.Fprintf(&htmlOut, ` <code><a href="%s">join</a></code>`, html.EscapeString(link))
+		}
+		htmlOut.WriteString("</li>\n")
 	}
 	htmlOut.WriteString("</ul>\n")
 	joinHint = strings.ReplaceAll(joinHint, "$cmdprefix", fc.Bridge.Config.CommandPrefix)
 	plain.WriteString("\nJoin with `" + joinHint + "`")
-	fmt.Fprintf(&htmlOut, "<p>Click a name to join, or use <code>%s</code>.</p>", html.EscapeString(joinHint))
+	fmt.Fprintf(&htmlOut, "<p>Click the link after a channel to join it, or use <code>%s</code>.</p>", html.EscapeString(joinHint))
 	content := &event.MessageEventContent{
 		MsgType:       event.MsgNotice,
 		Body:          plain.String(),

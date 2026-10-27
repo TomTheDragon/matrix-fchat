@@ -15,6 +15,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 	"maunium.net/go/mautrix/appservice"
+	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/matrix"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/id"
@@ -30,6 +31,11 @@ import (
 //
 // The payload contains the login and the target, and is signed so that nobody else
 // can make a login join channels.
+//
+// Links are short: the alias only contains a token (part of the payload's signature), and the
+// payload is stored in the bridge database. Element Web shows links to room aliases as
+// "pills" with the alias as text, so long aliases took up whole lines there. Old links with
+// the payload in the alias (#fchat_open_<payload>_<signature>) still work.
 
 const (
 	openAliasPrefix = "fchat_open_"
@@ -69,10 +75,62 @@ func signOpenPayload(key, payload []byte) []byte {
 }
 
 func makeOpenAliasLocalpart(key []byte, kind byte, login networkid.UserLoginID, target string) string {
-	payload := []byte(string(kind) + string(login) + "\x00" + target)
+	payload := openPayload(kind, login, target)
 	return openAliasPrefix +
 		strings.ToLower(openEncoding.EncodeToString(payload)) + "_" +
 		strings.ToLower(openEncoding.EncodeToString(signOpenPayload(key, payload)))
+}
+
+// openTokenLength is the number of signature bytes in a short open link token (13 characters).
+const openTokenLength = 8
+
+func openPayload(kind byte, login networkid.UserLoginID, target string) []byte {
+	return []byte(string(kind) + string(login) + "\x00" + target)
+}
+
+func decodeOpenPayload(payload []byte) (kind byte, login networkid.UserLoginID, target string, ok bool) {
+	if len(payload) < 2 {
+		return 0, "", "", false
+	}
+	loginPart, target, ok := strings.Cut(string(payload[1:]), "\x00")
+	if !ok || loginPart == "" || target == "" {
+		return 0, "", "", false
+	}
+	return payload[0], networkid.UserLoginID(loginPart), target, true
+}
+
+// openToken is the short alias token of a payload.
+func openToken(key, payload []byte) string {
+	return strings.ToLower(openEncoding.EncodeToString(signOpenPayload(key, payload)[:openTokenLength]))
+}
+
+func openTokenKey(token string) database.Key {
+	return database.Key("open_link:" + token)
+}
+
+// rememberOpenToken stores the payload of a short token, once per token and bridge run.
+func (fc *FChatConnector) rememberOpenToken(token string, payload []byte) {
+	if _, known := fc.openTokens.LoadOrStore(token, string(payload)); known {
+		return
+	}
+	ctx := fc.Bridge.BackgroundCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	fc.Bridge.DB.KV.Set(ctx, openTokenKey(token), string(payload))
+}
+
+// resolveOpenToken returns the payload of a short token, checking that the bridge signed it.
+func (fc *FChatConnector) resolveOpenToken(ctx context.Context, key []byte, token string) (payload []byte, ok bool) {
+	if cached, found := fc.openTokens.Load(token); found {
+		payload = []byte(cached.(string))
+	} else if stored := fc.Bridge.DB.KV.Get(ctx, openTokenKey(token)); stored != "" {
+		payload = []byte(stored)
+		fc.openTokens.Store(token, stored)
+	} else {
+		return nil, false
+	}
+	return payload, hmac.Equal([]byte(openToken(key, payload)), []byte(token))
 }
 
 func parseOpenAliasLocalpart(key []byte, localpart string) (kind byte, login networkid.UserLoginID, target string, ok bool) {
@@ -89,11 +147,7 @@ func parseOpenAliasLocalpart(key []byte, localpart string) (kind byte, login net
 	if err1 != nil || err2 != nil || len(payload) < 2 || !hmac.Equal(sig, signOpenPayload(key, payload)) {
 		return 0, "", "", false
 	}
-	loginPart, target, ok := strings.Cut(string(payload[1:]), "\x00")
-	if !ok || loginPart == "" || target == "" {
-		return 0, "", "", false
-	}
-	return payload[0], networkid.UserLoginID(loginPart), target, true
+	return decodeOpenPayload(payload)
 }
 
 // openLink returns a link that opens a channel or DM for the login, or "" if
@@ -103,8 +157,10 @@ func (fc *FChatConnector) openLink(login networkid.UserLoginID, kind byte, targe
 	if key == nil || target == "" {
 		return ""
 	}
-	alias := "#" + makeOpenAliasLocalpart(key, kind, login, target) + ":" + fc.Bridge.Matrix.ServerName()
-	return openLinkURL(alias)
+	payload := openPayload(kind, login, target)
+	token := openToken(key, payload)
+	fc.rememberOpenToken(token, payload)
+	return openLinkURL("#" + openAliasPrefix + token + ":" + fc.Bridge.Matrix.ServerName())
 }
 
 // openLinkURL makes a matrix.to link to the alias.
@@ -141,7 +197,18 @@ func (fc *FChatConnector) QueryAlias(alias id.RoomAlias) bool {
 	if mc == nil || key == nil || !found || server != fc.Bridge.Matrix.ServerName() {
 		return false
 	}
-	kind, loginID, target, ok := parseOpenAliasLocalpart(key, localpart)
+	var kind byte
+	var loginID networkid.UserLoginID
+	var target string
+	var ok bool
+	if token, isOpen := strings.CutPrefix(localpart, openAliasPrefix); isOpen && !strings.Contains(token, "_") {
+		var payload []byte
+		if payload, ok = fc.resolveOpenToken(ctx, key, token); ok {
+			kind, loginID, target, ok = decodeOpenPayload(payload)
+		}
+	} else {
+		kind, loginID, target, ok = parseOpenAliasLocalpart(key, localpart)
+	}
 	if !ok {
 		log.Debug().Msg("Invalid or unsigned open alias")
 		return false
