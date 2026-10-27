@@ -136,6 +136,18 @@ func (fc *FChatConnector) commandHandlers() []commands.CommandHandler {
 			RequiresPortal: true,
 		},
 		&commands.FullHandler{
+			Func:    fc.cmdProfile,
+			Name:    "profile",
+			Aliases: []string{"whois"},
+			Help: commands.HelpMeta{
+				Section: HelpSectionFChat,
+				Description: "Show a short overview of a character's F-List profile. Works in any room; " +
+					"the overview is only visible to you. In a private chat, the character is optional.",
+				Args: "[_character_]",
+			},
+			RequiresLogin: true,
+		},
+		&commands.FullHandler{
 			Func:    fc.cmdFindPartners,
 			Name:    "find-partners",
 			Aliases: []string{"search", "find"},

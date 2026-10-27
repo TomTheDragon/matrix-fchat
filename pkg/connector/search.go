@@ -61,6 +61,8 @@ type searchOptions struct {
 	Values map[string][]string // searchField.Key -> allowed values
 	// ListItems maps list item IDs to their values (for profile infotags).
 	ListItems map[string]string
+	// KinkNames maps kink IDs to their names.
+	KinkNames map[string]string
 	fetched   time.Time
 }
 
@@ -85,10 +87,11 @@ func (fc *FChatConnector) getSearchOptions(ctx context.Context) (*searchOptions,
 		}
 		return nil, err
 	}
-	opts := &searchOptions{Values: make(map[string][]string), fetched: time.Now()}
+	opts := &searchOptions{Values: make(map[string][]string), KinkNames: make(map[string]string), fetched: time.Now()}
 	for _, kink := range mapping.Kinks {
 		if kink.ID != "" && kink.Name != "" {
 			opts.Kinks = append(opts.Kinks, searchKink{ID: kink.ID, Name: html.UnescapeString(kink.Name)})
+			opts.KinkNames[kink.ID] = html.UnescapeString(kink.Name)
 		}
 	}
 	slices.SortFunc(opts.Kinks, func(a, b searchKink) int {

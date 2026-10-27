@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
 
 	"matrix-fchat/pkg/fchat"
 )
@@ -24,6 +26,10 @@ type queuedMessage struct {
 	Recipient string `json:"recipient"`
 	Text      string `json:"text"`
 	Queued    int64  `json:"queued"`
+	// The notice that told the user that the message is waiting. It's edited once the
+	// message was sent.
+	NoticeRoom  id.RoomID  `json:"notice_room,omitempty"`
+	NoticeEvent id.EventID `json:"notice_event,omitempty"`
 }
 
 var errQueueFull = errors.New("too many messages are waiting for this character to come online")
@@ -36,33 +42,34 @@ func (c *FChatClient) isOnline(userID networkid.UserID) bool {
 	return ok && info.Status != "" && info.Status != fchat.StatusOffline
 }
 
-// queueOfflineMessage keeps a private message until the recipient comes online.
-func (c *FChatClient) queueOfflineMessage(ctx context.Context, recipient, text string) error {
+// queueOfflineMessage keeps a private message until the recipient comes online and tells
+// the user about it with a notice (a reply to the Matrix message), which is edited later.
+func (c *FChatClient) queueOfflineMessage(ctx context.Context, recipient, text string, original id.EventID) error {
 	userID := makeUserID(recipient)
 	c.metaLock.Lock()
-	meta := c.meta()
-	if len(meta.OfflineMessages[string(userID)]) >= maxQueuedPerCharacter {
-		c.metaLock.Unlock()
+	count := len(c.meta().OfflineMessages[string(userID)])
+	c.metaLock.Unlock()
+	if count >= maxQueuedPerCharacter {
 		return errQueueFull
 	}
+	notice := fmt.Sprintf("⏳ %s is offline. The message will be sent when they come online.", recipient)
+	roomID, eventID := c.sendDMNotice(ctx, userID, notice, original)
+	c.metaLock.Lock()
+	meta := c.meta()
 	if meta.OfflineMessages == nil {
 		meta.OfflineMessages = make(map[string][]queuedMessage)
 	}
 	meta.OfflineMessages[string(userID)] = append(meta.OfflineMessages[string(userID)], queuedMessage{
-		Recipient: recipient,
-		Text:      text,
-		Queued:    time.Now().Unix(),
+		Recipient:   recipient,
+		Text:        text,
+		Queued:      time.Now().Unix(),
+		NoticeRoom:  roomID,
+		NoticeEvent: eventID,
 	})
-	count := len(meta.OfflineMessages[string(userID)])
 	c.metaLock.Unlock()
 	if err := c.UserLogin.Save(ctx); err != nil {
 		c.log.Err(err).Msg("Failed to save queued message")
 	}
-	notice := fmt.Sprintf("%s is offline. The message will be sent when they come online", recipient)
-	if count > 1 {
-		notice += fmt.Sprintf(" (%d messages waiting)", count)
-	}
-	c.sendDMNotice(ctx, userID, notice+".")
 	return nil
 }
 
@@ -88,13 +95,14 @@ func (c *FChatClient) deliverOfflineMessages() {
 	}
 }
 
-// deliverOfflineMessagesTo sends the waiting messages to a character that came online.
+// deliverOfflineMessagesTo sends the waiting messages to a character that came online and
+// edits their notices.
 func (c *FChatClient) deliverOfflineMessagesTo(userID networkid.UserID) {
 	c.offlineLock.Lock()
 	defer c.offlineLock.Unlock()
 	ctx := c.ctx()
 	c.metaLock.Lock()
-	messages := c.meta().OfflineMessages[string(userID)]
+	messages := slices.Clone(c.meta().OfflineMessages[string(userID)])
 	c.metaLock.Unlock()
 	if len(messages) == 0 {
 		return
@@ -107,11 +115,27 @@ func (c *FChatClient) deliverOfflineMessagesTo(userID networkid.UserID) {
 			break
 		}
 		sent++
+		queued := time.Unix(msg.Queued, 0).UTC().Format("2006-01-02 15:04 UTC")
+		c.editNotice(ctx, userID, msg, fmt.Sprintf("✅ Sent to %s when they came online (waited since %s).", msg.Recipient, queued))
+	}
+	dropped := false
+	var fcErr *fchat.Error
+	if sendErr != nil {
+		c.log.Warn().Err(sendErr).Str("character", messages[sent].Recipient).Msg("Failed to send queued message")
+		if errors.As(sendErr, &fcErr) && fcErr.Code != fchat.ErrCodeCharacterNotFound {
+			// The message won't ever be accepted (e.g. the character ignores you), so drop it.
+			dropped = true
+			c.editNotice(ctx, userID, messages[sent], fmt.Sprintf("❌ The message couldn't be sent to %s: %s", messages[sent].Recipient, fcErr.Message))
+		}
+	}
+	done := sent
+	if dropped {
+		done++
 	}
 	c.metaLock.Lock()
 	meta := c.meta()
 	// Messages may have been added while sending.
-	remaining := meta.OfflineMessages[string(userID)][sent:]
+	remaining := meta.OfflineMessages[string(userID)][done:]
 	if len(remaining) == 0 {
 		delete(meta.OfflineMessages, string(userID))
 	} else {
@@ -121,47 +145,52 @@ func (c *FChatClient) deliverOfflineMessagesTo(userID networkid.UserID) {
 	if err := c.UserLogin.Save(ctx); err != nil {
 		c.log.Err(err).Msg("Failed to save login after sending queued messages")
 	}
-	name := messages[0].Recipient
-	if sent > 0 {
-		c.sendDMNotice(ctx, userID, fmt.Sprintf("%s is online now, sent %d waiting message(s).", name, sent))
+}
+
+// editNotice replaces the text of a queued message's notice, or sends a new notice if the
+// original one couldn't be sent.
+func (c *FChatClient) editNotice(ctx context.Context, userID networkid.UserID, msg queuedMessage, text string) {
+	if msg.NoticeRoom == "" || msg.NoticeEvent == "" {
+		c.sendDMNotice(ctx, userID, text, "")
+		return
 	}
-	if sendErr != nil {
-		c.log.Warn().Err(sendErr).Str("character", name).Msg("Failed to send queued message")
-		var fcErr *fchat.Error
-		if errors.As(sendErr, &fcErr) && fcErr.Code != fchat.ErrCodeCharacterNotFound {
-			// The message won't ever be accepted (e.g. the character ignores you), so drop it.
-			c.dropFirstOfflineMessage(ctx, userID)
-			c.sendDMNotice(ctx, userID, fmt.Sprintf("A waiting message couldn't be sent to %s: %s", name, fcErr.Message))
-		}
+	content := &event.MessageEventContent{MsgType: event.MsgNotice, Body: text, Mentions: &event.Mentions{}}
+	content.SetEdit(msg.NoticeEvent)
+	_, err := c.Main.Bridge.Bot.SendMessage(ctx, msg.NoticeRoom, event.EventMessage, &event.Content{Parsed: content}, nil)
+	if err != nil {
+		c.log.Err(err).Msg("Failed to edit queued message notice")
 	}
 }
 
-func (c *FChatClient) dropFirstOfflineMessage(ctx context.Context, userID networkid.UserID) {
-	c.metaLock.Lock()
-	meta := c.meta()
-	if queue := meta.OfflineMessages[string(userID)]; len(queue) > 1 {
-		meta.OfflineMessages[string(userID)] = queue[1:]
-	} else {
-		delete(meta.OfflineMessages, string(userID))
-	}
-	c.metaLock.Unlock()
-	if err := c.UserLogin.Save(ctx); err != nil {
-		c.log.Err(err).Msg("Failed to save login")
-	}
-}
-
-// sendDMNotice sends a notice from the bridge bot into the DM room with a character.
-// If the bot can't send there, the notice goes to the management room.
-func (c *FChatClient) sendDMNotice(ctx context.Context, userID networkid.UserID, text string) {
+// sendDMNotice sends a notice from the bridge bot into the DM room with a character, as a
+// reply to replyTo if set. If the bot can't send there, the notice goes to the management
+// room. It returns the room and event ID of the notice, or empty IDs if it couldn't be sent.
+func (c *FChatClient) sendDMNotice(ctx context.Context, userID networkid.UserID, text string, replyTo id.EventID) (id.RoomID, id.EventID) {
 	portal, err := c.Main.Bridge.GetExistingPortalByKey(ctx, makeDMPortalKey(string(userID), c.UserLogin.ID))
 	if err == nil && portal != nil && portal.MXID != "" {
-		_, err = c.Main.Bridge.Bot.SendMessage(ctx, portal.MXID, event.EventMessage, &event.Content{
-			Parsed: &event.MessageEventContent{MsgType: event.MsgNotice, Body: text, Mentions: &event.Mentions{}},
-		}, nil)
+		content := &event.MessageEventContent{MsgType: event.MsgNotice, Body: text, Mentions: &event.Mentions{}}
+		if replyTo != "" {
+			content.RelatesTo = (&event.RelatesTo{}).SetReplyTo(replyTo)
+		}
+		resp, err := c.Main.Bridge.Bot.SendMessage(ctx, portal.MXID, event.EventMessage, &event.Content{Parsed: content}, nil)
 		if err == nil {
-			return
+			return portal.MXID, resp.EventID
 		}
 		c.log.Debug().Err(err).Msg("Failed to send notice to DM room")
 	}
-	c.sendManagementNotice(ctx, text)
+	if !c.Main.Config.BridgeNotices {
+		return "", ""
+	}
+	roomID, err := c.UserLogin.User.GetManagementRoom(ctx)
+	if err != nil {
+		c.log.Err(err).Msg("Failed to get management room to send notice")
+		return "", ""
+	}
+	content := &event.MessageEventContent{MsgType: event.MsgNotice, Body: text, Mentions: &event.Mentions{}}
+	resp, err := c.Main.Bridge.Bot.SendMessage(ctx, roomID, event.EventMessage, &event.Content{Parsed: content}, nil)
+	if err != nil {
+		c.log.Err(err).Msg("Failed to send notice to management room")
+		return "", ""
+	}
+	return roomID, resp.EventID
 }

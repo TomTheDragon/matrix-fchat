@@ -8,7 +8,7 @@ built on [mautrix-go bridgev2](https://pkg.go.dev/maunium.net/go/mautrix/bridgev
 | F-Chat                                          | Matrix                                                                   |
 |-------------------------------------------------|--------------------------------------------------------------------------|
 | Public channels and private rooms (ADH-…)       | One Matrix room per channel and login                                    |
-| Private messages (PRI)                          | DM rooms, started with `start-chat <character>`; messages to offline characters are sent when they come online (`queue_offline_messages`) |
+| Private messages (PRI)                          | DM rooms, started with `start-chat <character>`; messages to offline characters are sent when they come online (`queue_offline_messages`), and the notice about it is edited once they're sent |
 | BBCode (b, i, u, s, sup, sub, color, url, user, icon, eicon, spoiler, noparse, session) | HTML formatting, in both directions           |
 | `[eicon]` and emoticons (`:heart:`, `:lif-smile:`, …) | Inline images (uploaded to Matrix once and cached); messages with only eicons are sent as stickers, so animated eicons play |
 | `[icon]`                                        | Avatar image linked to the F-List profile, then 💬 (opens the private chat) |
@@ -192,6 +192,7 @@ More commands (in portal rooms, use the `!fchat` prefix):
 | `ad <text>`                    | Post a roleplay ad in the current channel                        |
 | `ads [room\|character] [on\|off\|default]` | Show or hide ads: in a channel room for that room, elsewhere for the character (without arguments: show the settings) |
 | `find-partners kinks: … [; genders: …; limit: N]` | Find online characters (without arguments: help and the possible values) |
+| `profile [character]`                           | Short overview of an F-List profile (summary, kinks, description, status). Works in any room and is only visible to you; in a private chat the character is optional |
 | `invite <character>`           | Invite a character to the current private room                   |
 | `ignore [remove] <character>`  | Edit your ignore list                                            |
 | `reconnect`                    | Reconnect (e.g. after "logged in at another location")           |

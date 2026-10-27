@@ -256,35 +256,104 @@ func (api *API) GetMappingList(ctx context.Context) (*MappingList, error) {
 
 // CharacterData is the part of /json/api/character-data.php that the bridge uses.
 type CharacterData struct {
-	Name string `json:"name"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	CustomTitle string `json:"custom_title"`
+	Views       int64  `json:"-"`
+	CreatedAt   int64  `json:"-"` // unix seconds
+	UpdatedAt   int64  `json:"-"` // unix seconds
 	// Infotags maps infotag IDs to values. For list infotags, the value is a list item ID.
 	Infotags map[string]string `json:"-"`
-	Error    string            `json:"error"`
+	// Kinks maps kink IDs to the choice: "fave", "yes", "maybe" or "no".
+	Kinks map[string]string `json:"-"`
+	// CustomKinks are the character's own kinks.
+	CustomKinks []CustomKink `json:"-"`
+	Images      int          `json:"-"`
+	Error       string       `json:"error"`
 }
 
-// UnmarshalJSON reads the infotags, which can be an object of strings or numbers, or an
-// empty array (PHP encodes empty objects as arrays).
+// CustomKink is a kink that a character added to its profile.
+type CustomKink struct {
+	Name   string `json:"name"`
+	Choice string `json:"choice"`
+}
+
+// flexString reads a JSON string or number as a string.
+func flexString(raw json.RawMessage) string {
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return ""
+	}
+	switch v := v.(type) {
+	case string:
+		return v
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	}
+	return ""
+}
+
+// flexInt reads a JSON number or numeric string.
+func flexInt(raw json.RawMessage) int64 {
+	n, _ := strconv.ParseInt(flexString(raw), 10, 64)
+	return n
+}
+
+// flexObject reads a JSON object into a map of raw values. PHP encodes empty objects as
+// empty arrays, so anything that isn't an object gives an empty map.
+func flexObject(raw json.RawMessage) map[string]json.RawMessage {
+	var obj map[string]json.RawMessage
+	if len(raw) == 0 || raw[0] != '{' || json.Unmarshal(raw, &obj) != nil {
+		return map[string]json.RawMessage{}
+	}
+	return obj
+}
+
+// UnmarshalJSON reads the fields that F-List sends in varying types: numbers as strings and
+// empty objects as empty arrays.
 func (cd *CharacterData) UnmarshalJSON(data []byte) error {
 	type plain CharacterData
 	var raw struct {
 		*plain
-		Infotags json.RawMessage `json:"infotags"`
+		Views       json.RawMessage `json:"views"`
+		CreatedAt   json.RawMessage `json:"created_at"`
+		UpdatedAt   json.RawMessage `json:"updated_at"`
+		Infotags    json.RawMessage `json:"infotags"`
+		Kinks       json.RawMessage `json:"kinks"`
+		CustomKinks json.RawMessage `json:"custom_kinks"`
+		Images      json.RawMessage `json:"images"`
 	}
 	raw.plain = (*plain)(cd)
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	cd.Views = flexInt(raw.Views)
+	cd.CreatedAt = flexInt(raw.CreatedAt)
+	cd.UpdatedAt = flexInt(raw.UpdatedAt)
 	cd.Infotags = make(map[string]string)
-	var tags map[string]any
-	if len(raw.Infotags) > 0 && raw.Infotags[0] == '{' && json.Unmarshal(raw.Infotags, &tags) == nil {
-		for key, value := range tags {
-			switch v := value.(type) {
-			case string:
-				cd.Infotags[key] = v
-			case float64:
-				cd.Infotags[key] = strconv.FormatFloat(v, 'f', -1, 64)
-			}
+	for key, value := range flexObject(raw.Infotags) {
+		if v := flexString(value); v != "" {
+			cd.Infotags[key] = v
 		}
+	}
+	cd.Kinks = make(map[string]string)
+	for key, value := range flexObject(raw.Kinks) {
+		if v := flexString(value); v != "" {
+			cd.Kinks[key] = v
+		}
+	}
+	cd.CustomKinks = nil
+	for _, value := range flexObject(raw.CustomKinks) {
+		var kink CustomKink
+		if json.Unmarshal(value, &kink) == nil && kink.Name != "" {
+			cd.CustomKinks = append(cd.CustomKinks, kink)
+		}
+	}
+	var images []json.RawMessage
+	if json.Unmarshal(raw.Images, &images) == nil {
+		cd.Images = len(images)
+	} else {
+		cd.Images = len(flexObject(raw.Images))
 	}
 	return nil
 }

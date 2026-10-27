@@ -32,6 +32,8 @@ func main() {
 		}
 		// Links that join channels and open chats are room aliases that the bridge answers.
 		fc.SetupOpenLinks(m.RegistrationPath)
+		// mautrix's "Private chat portal created" notice isn't needed.
+		fc.SetupNoticeFilter()
 	}
 	m.InitVersion(Tag, Commit, BuildTime)
 	fc.Version = m.Version
