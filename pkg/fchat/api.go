@@ -438,3 +438,143 @@ func (tr *TicketResponse) BookmarkNames() []string {
 	}
 	return names
 }
+
+// emptyResponse is the response of endpoints that only return an error on failure.
+type emptyResponse struct {
+	Error string `json:"error"`
+}
+
+// postSimple calls an endpoint that returns nothing but an error field.
+func (api *API) postSimple(ctx context.Context, endpoint, account, ticket string, form url.Values) error {
+	form.Set("account", account)
+	form.Set("ticket", ticket)
+	var resp emptyResponse
+	if err := api.post(ctx, endpoint, form, &resp); err != nil {
+		return err
+	}
+	if resp.Error != "" {
+		return &APIError{Endpoint: endpoint, Message: resp.Error}
+	}
+	return nil
+}
+
+// AddBookmark bookmarks a character. The server sends an RTB trackadd afterwards.
+func (api *API) AddBookmark(ctx context.Context, account, ticket, name string) error {
+	return api.postSimple(ctx, "/json/api/bookmark-add.php", account, ticket, url.Values{"name": {name}})
+}
+
+// RemoveBookmark removes a bookmark. The server sends an RTB trackrem afterwards.
+func (api *API) RemoveBookmark(ctx context.Context, account, ticket, name string) error {
+	return api.postSimple(ctx, "/json/api/bookmark-remove.php", account, ticket, url.Values{"name": {name}})
+}
+
+// RemoveFriend ends the friendship between one of the account's characters and another character.
+func (api *API) RemoveFriend(ctx context.Context, account, ticket, source, dest string) error {
+	return api.postSimple(ctx, "/json/api/friend-remove.php", account, ticket, url.Values{
+		"source_name": {source},
+		"dest_name":   {dest},
+	})
+}
+
+// SendFriendRequest sends a friend request from one of the account's characters.
+func (api *API) SendFriendRequest(ctx context.Context, account, ticket, source, target string) error {
+	return api.postSimple(ctx, "/json/api/request-send2.php", account, ticket, url.Values{
+		"source": {source},
+		"target": {target},
+	})
+}
+
+// AcceptFriendRequest accepts an incoming friend request.
+func (api *API) AcceptFriendRequest(ctx context.Context, account, ticket string, requestID int64) error {
+	return api.postSimple(ctx, "/json/api/request-accept.php", account, ticket, url.Values{"request_id": {strconv.FormatInt(requestID, 10)}})
+}
+
+// DenyFriendRequest denies an incoming friend request.
+func (api *API) DenyFriendRequest(ctx context.Context, account, ticket string, requestID int64) error {
+	return api.postSimple(ctx, "/json/api/request-deny.php", account, ticket, url.Values{"request_id": {strconv.FormatInt(requestID, 10)}})
+}
+
+// CancelFriendRequest cancels an outgoing friend request.
+func (api *API) CancelFriendRequest(ctx context.Context, account, ticket string, requestID int64) error {
+	return api.postSimple(ctx, "/json/api/request-cancel.php", account, ticket, url.Values{"request_id": {strconv.FormatInt(requestID, 10)}})
+}
+
+// FriendRequest is an incoming or outgoing friend request.
+type FriendRequest struct {
+	ID     int64
+	Source string
+	Dest   string
+}
+
+// UnmarshalJSON accepts the ID as a number or a string.
+func (fr *FriendRequest) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		ID     json.RawMessage `json:"id"`
+		Source string          `json:"source"`
+		Dest   string          `json:"dest"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	fr.ID, fr.Source, fr.Dest = flexInt(raw.ID), raw.Source, raw.Dest
+	return nil
+}
+
+// FriendRequests are the incoming and outgoing friend requests of an account.
+type FriendRequests struct {
+	// Incoming requests: Dest is one of the account's characters.
+	Incoming []FriendRequest `json:"requestlist"`
+	// Outgoing requests: Source is one of the account's characters.
+	Outgoing []FriendRequest `json:"requestpending"`
+	Error    string          `json:"error"`
+}
+
+// GetFriendRequests requests the incoming and outgoing friend requests of the account.
+func (api *API) GetFriendRequests(ctx context.Context, account, ticket string) (*FriendRequests, error) {
+	const endpoint = "/json/api/friend-bookmark-lists.php"
+	form := url.Values{
+		"account":        {account},
+		"ticket":         {ticket},
+		"requestlist":    {"true"},
+		"requestpending": {"true"},
+	}
+	var resp FriendRequests
+	if err := api.post(ctx, endpoint, form, &resp); err != nil {
+		return nil, err
+	}
+	if resp.Error != "" {
+		return nil, &APIError{Endpoint: endpoint, Message: resp.Error}
+	}
+	return &resp, nil
+}
+
+// MaxMemoLength is the maximum length of a character memo.
+const MaxMemoLength = 1000
+
+// GetMemo returns the account's private memo about a character ("" if there is none).
+func (api *API) GetMemo(ctx context.Context, account, ticket, target string) (string, error) {
+	const endpoint = "/json/api/character-memo-get2.php"
+	form := url.Values{"account": {account}, "ticket": {ticket}, "target": {target}}
+	var resp struct {
+		Note  *string `json:"note"`
+		Error string  `json:"error"`
+	}
+	if err := api.post(ctx, endpoint, form, &resp); err != nil {
+		return "", err
+	}
+	if resp.Error != "" {
+		return "", &APIError{Endpoint: endpoint, Message: resp.Error}
+	}
+	if resp.Note == nil {
+		return "", nil
+	}
+	return *resp.Note, nil
+}
+
+// SaveMemo sets the account's private memo about a character. An empty note deletes it.
+func (api *API) SaveMemo(ctx context.Context, account, ticket, target, note string) error {
+	return api.postSimple(ctx, "/json/api/character-memo-save.php", account, ticket, url.Values{
+		"target_name": {target},
+		"note":        {note},
+	})
+}

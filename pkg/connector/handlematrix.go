@@ -147,6 +147,7 @@ func (c *FChatClient) mediaText(ctx context.Context, content *event.MessageEvent
 }
 
 func (c *FChatClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.MatrixMessage) (*bridgev2.MatrixMessageResponse, error) {
+	c.markActive(ctx)
 	if !c.Conn.IsConnected() {
 		return nil, errNotConnected
 	}
@@ -217,6 +218,9 @@ func (c *FChatClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.Mat
 }
 
 func (c *FChatClient) HandleMatrixTyping(ctx context.Context, msg *bridgev2.MatrixTyping) error {
+	if msg.IsTyping {
+		c.markActive(ctx)
+	}
 	_, dmUser, ok := parsePortalID(msg.Portal.ID)
 	if !ok || dmUser == "" || !c.Conn.IsConnected() {
 		return nil

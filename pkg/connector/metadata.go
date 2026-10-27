@@ -29,6 +29,12 @@ type UserLoginMetadata struct {
 	// sent when the character comes online.
 	OfflineMessages map[string][]queuedMessage `json:"offline_messages,omitempty"`
 
+	// OnlineAlerts overrides the online_alerts config option for this character (nil = use the config).
+	OnlineAlerts *bool `json:"online_alerts,omitempty"`
+
+	// AutoAds are the ads that are posted again and again, by channel.
+	AutoAds map[string]*autoAd `json:"auto_ads,omitempty"`
+
 	// SpaceAvatar is the avatar the bridge last set on the login's space room.
 	SpaceAvatar id.ContentURIString `json:"space_avatar,omitempty"`
 }

@@ -31,17 +31,8 @@ func (fc *FChatConnector) cmdProfile(ce *commands.Event) {
 		return
 	}
 	name := strings.TrimSpace(ce.RawArgs)
-	if name == "" && ce.Portal != nil {
-		if _, dmUser, ok := parsePortalID(ce.Portal.ID); ok && dmUser != "" {
-			name = client.characterName(dmUser)
-			if name == "" {
-				if ghost, _ := fc.Bridge.GetExistingGhostByID(ce.Ctx, dmUser); ghost != nil && ghost.Name != "" {
-					name = ghost.Name
-				} else {
-					name = string(dmUser)
-				}
-			}
-		}
+	if name == "" {
+		name = fc.dmPartnerName(ce, client)
 	}
 	if name == "" {
 		ce.Reply("Usage: `$cmdprefix profile <character>` (in a private chat, the character is optional)")
@@ -82,6 +73,15 @@ func (c *FChatClient) profileOverview(ctx context.Context, name string) (*event.
 		name = data.Name
 	}
 	userID := makeUserID(name)
+	var memo string
+	err = c.withTicket(ctx, func(account, ticket string) error {
+		var reqErr error
+		memo, reqErr = c.Main.API.GetMemo(ctx, account, ticket, name)
+		return reqErr
+	})
+	if err != nil {
+		c.log.Debug().Err(err).Str("character", name).Msg("Failed to load memo")
+	}
 	view := &profileView{
 		Name:      name,
 		Profile:   fchat.ProfileURL(c.Main.Config.SiteURL, name),
@@ -90,6 +90,15 @@ func (c *FChatClient) profileOverview(ctx context.Context, name string) (*event.
 		Data:      data,
 		ListItems: opts.ListItems,
 		KinkNames: opts.KinkNames,
+		Memo:      strings.TrimSpace(bbcode.DecodeEntities(memo)),
+	}
+	if userID != c.ownID {
+		if own, err := c.ownCharacterData(ctx); err != nil {
+			c.log.Debug().Err(err).Msg("Failed to load own profile for the kink match")
+		} else {
+			view.Match = compareKinks(own.Kinks, data.Kinks, opts.KinkNames)
+			view.Match.Own = c.meta().Character
+		}
 	}
 	c.stateLock.RLock()
 	if info, ok := c.characters[userID]; ok && info.Status != "" && info.Status != fchat.StatusOffline {
@@ -108,6 +117,10 @@ type profileView struct {
 	StatusMsg                      string
 	Data                           *fchat.CharacterData
 	ListItems, KinkNames           map[string]string
+	// Memo is the user's private memo about the character.
+	Memo string
+	// Match compares the kinks with the user's character (nil for the own character).
+	Match *kinkMatch
 }
 
 // kinkSummary counts the kinks per choice and returns the names of the favorites.
@@ -192,6 +205,31 @@ func (v *profileView) render() *event.MessageEventContent {
 		out.WriteString("</p>")
 	}
 
+	// Kink match with the user's character.
+	if v.Match != nil && (v.Match.Shared > 0 || v.Match.Conflicts > 0) {
+		matchLine := v.Match.summary()
+		out.WriteString("<p>" + esc(matchLine))
+		plain.WriteString(matchLine + "\n")
+		if len(v.Match.BothFavorites) > 0 {
+			shown := v.Match.BothFavorites
+			more := ""
+			if len(shown) > maxProfileFavorites {
+				shown = shown[:maxProfileFavorites]
+				more = fmt.Sprintf(" and %d more", len(v.Match.BothFavorites)-maxProfileFavorites)
+			}
+			bothLine := "Favorites of both: " + strings.Join(shown, ", ") + more
+			out.WriteString("<br>" + esc(bothLine))
+			plain.WriteString(bothLine + "\n")
+		}
+		out.WriteString("</p>")
+	}
+
+	// The user's memo.
+	if v.Memo != "" {
+		fmt.Fprintf(&out, "<p><strong>Your memo:</strong> %s</p>", strings.ReplaceAll(esc(v.Memo), "\n", "<br>"))
+		plain.WriteString("\nYour memo: " + v.Memo + "\n")
+	}
+
 	// Start of the description.
 	desc := strings.TrimSpace(bbcode.ToPlain(bbcode.DecodeEntities(v.Data.Description)))
 	desc = strings.Join(strings.Fields(desc), " ")
@@ -233,4 +271,71 @@ func (v *profileView) render() *event.MessageEventContent {
 	}
 	disableLinkPreviews(content)
 	return content
+}
+
+// ownProfileMaxAge is how long the own character's profile is cached for kink matches.
+const ownProfileMaxAge = time.Hour
+
+// ownCharacterData returns the profile of the login's character, cached for an hour.
+func (c *FChatClient) ownCharacterData(ctx context.Context) (*fchat.CharacterData, error) {
+	c.ownProfileLock.Lock()
+	defer c.ownProfileLock.Unlock()
+	if c.ownProfile != nil && time.Since(c.ownProfileFetched) < ownProfileMaxAge {
+		return c.ownProfile, nil
+	}
+	var data *fchat.CharacterData
+	err := c.withTicket(ctx, func(account, ticket string) error {
+		var reqErr error
+		data, reqErr = c.Main.API.GetCharacterData(ctx, account, ticket, c.meta().Character)
+		return reqErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	c.ownProfile, c.ownProfileFetched = data, time.Now()
+	return data, nil
+}
+
+// kinkMatch compares the kinks of two characters.
+type kinkMatch struct {
+	Own string
+	// Shared is the number of kinks both like (favorite or yes).
+	Shared int
+	// Conflicts is the number of kinks one likes and the other doesn't want.
+	Conflicts int
+	// BothFavorites are the names of the kinks that both have as favorites.
+	BothFavorites []string
+}
+
+func likes(choice string) bool { return choice == "fave" || choice == "yes" }
+
+// compareKinks compares the standard kinks (custom kinks can't be compared).
+func compareKinks(own, theirs map[string]string, names map[string]string) *kinkMatch {
+	match := &kinkMatch{}
+	for id, mine := range own {
+		other, ok := theirs[id]
+		if !ok {
+			continue
+		}
+		switch {
+		case likes(mine) && likes(other):
+			match.Shared++
+			if mine == "fave" && other == "fave" && names[id] != "" {
+				match.BothFavorites = append(match.BothFavorites, names[id])
+			}
+		case likes(mine) && other == "no", mine == "no" && likes(other):
+			match.Conflicts++
+		}
+	}
+	slices.SortFunc(match.BothFavorites, func(a, b string) int { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) })
+	return match
+}
+
+// summary is a line like "Match with Kira: 80% (40 kinks you both like, 10 conflicts)".
+func (m *kinkMatch) summary() string {
+	percent := 0
+	if total := m.Shared + m.Conflicts; total > 0 {
+		percent = (m.Shared*100 + total/2) / total
+	}
+	return fmt.Sprintf("Kink match with %s: %d%% (%d liked by both, %d conflicts)", m.Own, percent, m.Shared, m.Conflicts)
 }

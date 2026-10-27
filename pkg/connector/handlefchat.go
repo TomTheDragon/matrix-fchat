@@ -749,6 +749,9 @@ func (c *FChatClient) handleOnline(nln *fchat.OnlineNotice) {
 	if c.hasOfflineMessages(userID) {
 		go c.deliverOfflineMessagesTo(userID)
 	}
+	if userID != c.ownID {
+		go c.sendOnlineAlert(userID, nln.Identity, nln.Status)
+	}
 }
 
 func (c *FChatClient) handleOnlineList(lis *fchat.OnlineList) {
@@ -884,7 +887,8 @@ func (c *FChatClient) handleRealtimeBridge(rtb *fchat.RealtimeBridge) {
 	case "comment":
 		text = fmt.Sprintf("New comment from **%s**", rtb.Character)
 	case "friendrequest":
-		text = fmt.Sprintf("New friend request from **%s**", rtb.Name)
+		text = fmt.Sprintf("New friend request from **%s**. Answer with `$cmdprefix friend accept %s` "+
+			"or `$cmdprefix friend deny %s`", rtb.Name, rtb.Name, rtb.Name)
 	case "friendadd":
 		c.updateContactList(c.friends, rtb.Name, true)
 		if c.Main.Config.CreateFriendDMs {
@@ -892,8 +896,9 @@ func (c *FChatClient) handleRealtimeBridge(rtb *fchat.RealtimeBridge) {
 		}
 		text = fmt.Sprintf("**%s** is now your friend", rtb.Name)
 	case "friendremove":
+		// F-List asks clients not to tell users when someone ended a friendship.
 		c.updateContactList(c.friends, rtb.Name, false)
-		text = fmt.Sprintf("**%s** is no longer your friend", rtb.Name)
+		return
 	case "trackadd":
 		c.updateContactList(c.bookmarks, rtb.Name, true)
 		text = fmt.Sprintf("**%s** was added to your bookmarks", rtb.Name)

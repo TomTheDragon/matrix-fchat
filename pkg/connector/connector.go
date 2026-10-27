@@ -66,6 +66,7 @@ func (fc *FChatConnector) userAgent() string {
 
 func (fc *FChatConnector) Start(ctx context.Context) error {
 	fc.startGhostCleanup()
+	fc.startTimers()
 	return nil
 }
 

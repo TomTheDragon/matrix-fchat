@@ -192,6 +192,190 @@ func (fc *FChatConnector) commandHandlers() []commands.CommandHandler {
 			RequiresLogin: true,
 		},
 		&commands.FullHandler{
+			Func:    fc.cmdAutoAd,
+			Name:    "auto-ad",
+			Aliases: []string{"ad-repeat"},
+			Help: commands.HelpMeta{
+				Section: HelpSectionFChat,
+				Description: "Post a roleplay ad in the current channel now and then every N minutes (at least 10) for 3 hours. " +
+					"`auto-ad stop` stops it; without arguments, lists the running ads.",
+				Args: "[<_minutes_> <_text_>|stop]",
+			},
+			RequiresLogin: true,
+		},
+		&commands.FullHandler{
+			Func: fc.cmdOnlineAlerts,
+			Name: "online-alerts",
+			Help: commands.HelpMeta{
+				Section:     HelpSectionFChat,
+				Description: "Get a notice when a friend or bookmark comes online. Without arguments, shows the setting.",
+				Args:        "[on|off|default]",
+			},
+			RequiresLogin: true,
+		},
+		&commands.FullHandler{
+			Func: fc.cmdFriend,
+			Name: "friend",
+			Help: commands.HelpMeta{
+				Section: HelpSectionFChat,
+				Description: "Send a friend request, remove a friend, or accept, deny or cancel a friend request. " +
+					"In a private chat, the character is optional.",
+				Args: "<add|remove|accept|deny|cancel> [_character_]",
+			},
+			RequiresLogin: true,
+		},
+		&commands.FullHandler{
+			Func:    fc.cmdFriendRequests,
+			Name:    "friend-requests",
+			Aliases: []string{"requests"},
+			Help: commands.HelpMeta{
+				Section:     HelpSectionFChat,
+				Description: "List incoming and sent friend requests.",
+			},
+			RequiresLogin: true,
+		},
+		&commands.FullHandler{
+			Func: fc.cmdBookmark,
+			Name: "bookmark",
+			Help: commands.HelpMeta{
+				Section:     HelpSectionFChat,
+				Description: "Add or remove a bookmark. In a private chat, the character is optional.",
+				Args:        "<add|remove> [_character_]",
+			},
+			RequiresLogin: true,
+		},
+		&commands.FullHandler{
+			Func: fc.cmdMemo,
+			Name: "memo",
+			Help: commands.HelpMeta{
+				Section: HelpSectionFChat,
+				Description: "Show, set (`memo <character> = <text>`) or delete (`memo <character> =`) your private memo " +
+					"about a character. In a private chat, the character is optional.",
+				Args: "[_character_] [= _text_]",
+			},
+			RequiresLogin: true,
+		},
+		&commands.FullHandler{
+			Func: fc.characterModCommand(fchat.CmdChannelKick, "kick <character>"),
+			Name: "kick",
+			Help: commands.HelpMeta{
+				Section:     HelpSectionFChat,
+				Description: "Kick a character from the current channel (channel ops only).",
+				Args:        "<_character_>",
+			},
+			RequiresLogin:  true,
+			RequiresPortal: true,
+		},
+		&commands.FullHandler{
+			Func: fc.characterModCommand(fchat.CmdChannelBan, "ban <character>"),
+			Name: "ban",
+			Help: commands.HelpMeta{
+				Section:     HelpSectionFChat,
+				Description: "Ban a character from the current channel (channel ops only).",
+				Args:        "<_character_>",
+			},
+			RequiresLogin:  true,
+			RequiresPortal: true,
+		},
+		&commands.FullHandler{
+			Func: fc.characterModCommand(fchat.CmdChannelUnban, "unban <character>"),
+			Name: "unban",
+			Help: commands.HelpMeta{
+				Section:     HelpSectionFChat,
+				Description: "Remove a ban or timeout in the current channel (channel ops only).",
+				Args:        "<_character_>",
+			},
+			RequiresLogin:  true,
+			RequiresPortal: true,
+		},
+		&commands.FullHandler{
+			Func: fc.cmdTimeout,
+			Name: "timeout",
+			Help: commands.HelpMeta{
+				Section:     HelpSectionFChat,
+				Description: "Time out a character from the current channel for 1 to 90 minutes (channel ops only).",
+				Args:        "<_minutes_> <_character_>",
+			},
+			RequiresLogin:  true,
+			RequiresPortal: true,
+		},
+		&commands.FullHandler{
+			Func:    fc.cmdBanList,
+			Name:    "banlist",
+			Aliases: []string{"bans"},
+			Help: commands.HelpMeta{
+				Section:     HelpSectionFChat,
+				Description: "Show the ban list of the current channel (channel ops only).",
+			},
+			RequiresLogin:  true,
+			RequiresPortal: true,
+		},
+		&commands.FullHandler{
+			Func: fc.characterModCommand(fchat.CmdOpAdd, "op <character>"),
+			Name: "op",
+			Help: commands.HelpMeta{
+				Section:     HelpSectionFChat,
+				Description: "Make a character a channel operator (channel owner only).",
+				Args:        "<_character_>",
+			},
+			RequiresLogin:  true,
+			RequiresPortal: true,
+		},
+		&commands.FullHandler{
+			Func: fc.characterModCommand(fchat.CmdOpRemove, "deop <character>"),
+			Name: "deop",
+			Help: commands.HelpMeta{
+				Section:     HelpSectionFChat,
+				Description: "Remove a channel operator (channel owner only).",
+				Args:        "<_character_>",
+			},
+			RequiresLogin:  true,
+			RequiresPortal: true,
+		},
+		&commands.FullHandler{
+			Func: fc.characterModCommand(fchat.CmdSetOwner, "set-owner <character>"),
+			Name: "set-owner",
+			Help: commands.HelpMeta{
+				Section:     HelpSectionFChat,
+				Description: "Give the current channel to another character (channel owner only).",
+				Args:        "<_character_>",
+			},
+			RequiresLogin:  true,
+			RequiresPortal: true,
+		},
+		&commands.FullHandler{
+			Func: fc.cmdChannelMode,
+			Name: "channel-mode",
+			Help: commands.HelpMeta{
+				Section:     HelpSectionFChat,
+				Description: "Set which messages the current channel accepts: chat, ads or both (channel owner only).",
+				Args:        "<chat|ads|both>",
+			},
+			RequiresLogin:  true,
+			RequiresPortal: true,
+		},
+		&commands.FullHandler{
+			Func: fc.cmdRoomVisibility,
+			Name: "room-visibility",
+			Help: commands.HelpMeta{
+				Section:     HelpSectionFChat,
+				Description: "Open the current private room to everyone (public) or make it invite-only (private). Room owner only.",
+				Args:        "<public|private>",
+			},
+			RequiresLogin:  true,
+			RequiresPortal: true,
+		},
+		&commands.FullHandler{
+			Func:    fc.cmdServerInfo,
+			Name:    "server-info",
+			Aliases: []string{"uptime"},
+			Help: commands.HelpMeta{
+				Section:     HelpSectionFChat,
+				Description: "Show how many characters are online and how long the F-Chat server has been running.",
+			},
+			RequiresLogin: true,
+		},
+		&commands.FullHandler{
 			Func: fc.cmdReconnect,
 			Name: "reconnect",
 			Help: commands.HelpMeta{
@@ -460,6 +644,8 @@ func (fc *FChatConnector) cmdStatus(ce *commands.Event) {
 		ce.Reply("Failed to set status: %v", err)
 		return
 	}
+	client.resetIdle()
+	client.setOwnStatus(newStatus, message)
 	ce.React("✅")
 }
 
@@ -510,15 +696,10 @@ func (fc *FChatConnector) cmdAd(ce *commands.Event) {
 		ce.Reply("The ad is too long")
 		return
 	}
-	err := client.Conn.SendMessage(ce.Ctx, fchat.CmdAd, &fchat.ChannelMessage{Channel: channel, Message: text})
+	shown, err := client.postAd(ce.Ctx, channel, text)
 	if err != nil {
 		ce.Reply("Failed to post ad: %v", err)
-		return
-	}
-	// The server doesn't echo ads back to the sender, so bridge it ourselves.
-	if client.showAds(ce.Ctx, channel) {
-		client.queueMessage(ce.Portal.PortalKey, client.meta().Character, client.adMessage(text), false)
-	} else {
+	} else if !shown {
 		ce.React("✅")
 	}
 }

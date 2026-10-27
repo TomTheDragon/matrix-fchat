@@ -31,6 +31,8 @@ type Config struct {
 	BridgeNotices       bool `yaml:"bridge_notices"`
 
 	DefaultStatusMessage string `yaml:"default_status_message"`
+	AutoIdleMinutes      int    `yaml:"auto_idle_minutes"`
+	OnlineAlerts         bool   `yaml:"online_alerts"`
 
 	FetchCharacterProfiles bool `yaml:"fetch_character_profiles"`
 	BeeperProfileFields    bool `yaml:"beeper_profile_fields"`
@@ -69,6 +71,8 @@ func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.Bool, "bridge_status_changes")
 	helper.Copy(up.Bool, "bridge_notices")
 	helper.Copy(up.Str, "default_status_message")
+	helper.Copy(up.Int, "auto_idle_minutes")
+	helper.Copy(up.Bool, "online_alerts")
 	helper.Copy(up.Bool, "fetch_character_profiles")
 	helper.Copy(up.Bool, "beeper_profile_fields")
 	helper.Copy(up.Int, "ghost_cleanup_days")
@@ -86,6 +90,8 @@ func (fc *FChatConnector) GetConfig() (string, any, up.Upgrader) {
 			{"queue_offline_messages"},
 			{"bridge_status_changes"},
 			{"default_status_message"},
+			{"auto_idle_minutes"},
+			{"online_alerts"},
 			{"fetch_character_profiles"},
 			{"beeper_profile_fields"},
 			{"ghost_cleanup_days"},

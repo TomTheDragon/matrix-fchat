@@ -18,6 +18,7 @@ const (
 	CmdPublicChannels = "CHA"
 	CmdChannelInvite  = "CIU"
 	CmdChannelBan     = "CBU"
+	CmdChannelBanList = "CBL"
 	CmdChannelUnban   = "CUB"
 	CmdChannelKick    = "CKU"
 	CmdOpAdd          = "COA"
@@ -360,4 +361,25 @@ type SearchRequest struct {
 // SearchResult is the server's FKS response: the names of the matching characters that are online.
 type SearchResult struct {
 	Characters []string `json:"characters"`
+}
+
+// ChannelBanListRequest asks for a channel's ban list (CBL). The server answers with a SYS message.
+type ChannelBanListRequest = ChannelRequest
+
+// RoomStatusRequest changes whether a private room is open to everyone ("public") or
+// invite-only ("private").
+type RoomStatusRequest struct {
+	Channel string `json:"channel"`
+	Status  string `json:"status"`
+}
+
+// Uptime is the server's UPT response.
+type Uptime struct {
+	StartString string `json:"startstring"`
+	StartTime   int64  `json:"starttime"`
+	Channels    int    `json:"channels"`
+	MaxUsers    int    `json:"maxusers"`
+	Users       int    `json:"users"`
+	Accepted    int64  `json:"accepted"`
+	Time        int64  `json:"time"`
 }

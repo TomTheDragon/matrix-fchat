@@ -50,6 +50,16 @@ bridge_notices: true
 # Leave empty to not set a status message.
 default_status_message: ""
 
+# Set your F-Chat status to "idle" after this many minutes without activity on Matrix
+# (sending messages, typing or reading messages in bridged rooms). The previous status comes
+# back with your next activity. Only "online" and "looking" are changed. 0 disables it.
+auto_idle_minutes: 0
+
+# Should you get a notice when a friend or bookmarked character comes online? The notice is
+# posted into the private chat with the character, or into the management room if there is
+# none. Users can change it per character with the `online-alerts` command.
+online_alerts: false
+
 # Should the bridge load the F-List profiles of characters (gender, species, age,
 # orientation, role, "currently looking for") for the biography of their Matrix profile?
 # The biography also links to the F-List profile. Profiles are loaded at most once a week

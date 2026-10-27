@@ -15,18 +15,22 @@ built on [mautrix-go bridgev2](https://pkg.go.dev/maunium.net/go/mautrix/bridgev
 | `[user]` names                                  | Name in the F-Chat gender color linked to the F-List profile, then 💬 (opens the private chat) |
 | Character profiles                              | Ghost biography (profile summary + link to the F-List profile), pronouns and name color (see [Profile fields](#profile-fields)) |
 | `/me` actions                                   | `m.emote`                                                                |
-| Roleplay ads (LRP)                              | Quoted message with an `[Ad]` prefix; send with `ad <text>`; turn on/off per character or room with `ads` |
+| Roleplay ads (LRP)                              | Quoted message with an `[Ad]` prefix; send with `ad <text>`, or every N minutes with `auto-ad`; turn on/off per character or room with `ads` |
 | Character search (FKS)                          | `find-partners` command                                                  |
 | Dice rolls / bottle spins (RLL)                 | Notice; send with `roll 1d20` or `bottle`                                |
 | Typing status (TPN) in DMs                      | Typing notifications (both directions)                                   |
 | Channel description (CDS)                       | Room topic (both directions; changing it requires channel op)            |
-| Channel ops / owner (COL, COA, COR, CSO)        | Power level 50 / 75                                                      |
-| Kick / ban / timeout (CKU, CBU, CTU)            | Kick / ban in Matrix (both directions for kick, ban, unban, invite)      |
+| Channel ops / owner (COL, COA, COR, CSO)        | Power level 50 / 75; change with `op`, `deop`, `set-owner`               |
+| Kick / ban / timeout (CKU, CBU, CUB, CTU, CBL)  | Kick / ban in Matrix (both directions for kick, ban, unban, invite); `kick`, `ban`, `unban`, `timeout`, `banlist` commands |
+| Channel mode / room visibility (RMO, RST)       | Notice; change with `channel-mode` and `room-visibility`                 |
 | Member list (ICH, JCH, LCH, FLN)                | Room members (up to `member_sync_limit`)                                 |
 | Invites, system messages, broadcasts, notes     | Notices in the management room                                           |
 | Ignore list                                     | Messages from ignored characters are dropped                             |
-| Friends                                         | A DM room per friend (`create_friend_dms`), contact list, `friends` command |
-| Bookmarks                                       | Contact list; `bookmarks` lists them with avatars, gender colors and online status |
+| Friends                                         | A DM room per friend (`create_friend_dms`), contact list, `friends` command; send, accept, deny and cancel requests and remove friends with `friend` and `friend-requests` |
+| Bookmarks                                       | Contact list; `bookmarks` lists them with avatars, gender colors and online status; `bookmark add/remove` |
+| Friends/bookmarks coming online                 | Optional notice (`online_alerts`, `online-alerts` command)               |
+| Character memos                                 | `memo` command; shown in `profile`                                       |
+| Idle status                                     | Set automatically after `auto_idle_minutes` without activity on Matrix   |
 | Avatars                                         | Ghost avatars from static.f-list.net                                     |
 | Files from Matrix                               | Sent as a link if `public_media` is enabled in the bridge config         |
 
@@ -190,12 +194,28 @@ More commands (in portal rooms, use the `!fchat` prefix):
 | `status <status> [message]`    | Set your status (online, looking, busy, dnd, idle, away)         |
 | `roll <dice>` / `bottle`       | Roll dice / spin the bottle in the current channel               |
 | `ad <text>`                    | Post a roleplay ad in the current channel                        |
+| `auto-ad [<minutes> <text>\|stop]` | Post an ad now and then every N minutes (at least 10) for 3 hours; without arguments: list the running ads |
 | `ads [room\|character] [on\|off\|default]` | Show or hide ads: in a channel room for that room, elsewhere for the character (without arguments: show the settings) |
 | `find-partners kinks: … [; genders: …; limit: N]` | Find online characters (without arguments: help and the possible values) |
-| `profile [character]`                           | Short overview of an F-List profile (summary, kinks, description, status). Works in any room and is only visible to you; in a private chat the character is optional |
+| `profile [character]`                           | Short overview of an F-List profile (summary, kinks, kink match with your character, your memo, description, status). Works in any room and is only visible to you; in a private chat the character is optional |
+| `memo [character] [= text]`    | Show, set or (with an empty text) delete your private memo about a character |
+| `friend <add\|remove\|accept\|deny\|cancel> [character]` | Friend requests and friendships                          |
+| `friend-requests`              | List incoming and sent friend requests                           |
+| `bookmark <add\|remove> [character]` | Add or remove a bookmark                                  |
+| `online-alerts [on\|off\|default]` | Notices when friends or bookmarks come online (per character) |
 | `invite <character>`           | Invite a character to the current private room                   |
+| `kick`, `ban`, `unban <character>` | Channel moderation (channel ops)                             |
+| `timeout <minutes> <character>` | Time out a character for 1 to 90 minutes (channel ops)          |
+| `banlist`                      | Show the channel's ban list (channel ops)                        |
+| `op`, `deop`, `set-owner <character>` | Change channel ops and the owner (channel owner)          |
+| `channel-mode <chat\|ads\|both>` | Which messages the channel accepts (channel owner)             |
+| `room-visibility <public\|private>` | Open the private room to everyone or make it invite-only (room owner) |
+| `server-info`                  | Characters online and server uptime                              |
 | `ignore [remove] <character>`  | Edit your ignore list                                            |
 | `reconnect`                    | Reconnect (e.g. after "logged in at another location")           |
+
+Commands that take a character also work in the private chat with that character without it
+(`profile`, `memo`, `friend`, `bookmark`).
 
 Outside of portal rooms, commands apply to your default login; in a portal room, they apply to
 the character that owns the room.

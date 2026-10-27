@@ -32,3 +32,22 @@ func TestProfileOverview(t *testing.T) {
 		t.Errorf("unexpected HTML %s", content.FormattedBody)
 	}
 }
+
+func TestProfileOverviewMemoAndMatch(t *testing.T) {
+	view := &profileView{
+		Name: "Zed", Profile: "https://www.f-list.net/c/Zed",
+		Data:  &fchat.CharacterData{},
+		Memo:  "Met in <Frontpage>\nlikes tea",
+		Match: &kinkMatch{Own: "Me", Shared: 3, Conflicts: 1, BothFavorites: []string{"Biting"}},
+	}
+	content := view.render()
+	for _, want := range []string{"Kink match with Me: 75% (3 liked by both, 1 conflicts)", "Favorites of both: Biting",
+		"Your memo: Met in <Frontpage>\nlikes tea"} {
+		if !strings.Contains(content.Body, want) {
+			t.Errorf("body misses %q:\n%s", want, content.Body)
+		}
+	}
+	if !strings.Contains(content.FormattedBody, "Met in &lt;Frontpage&gt;<br>likes tea") {
+		t.Errorf("memo not escaped in HTML: %s", content.FormattedBody)
+	}
+}

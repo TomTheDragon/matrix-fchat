@@ -64,6 +64,18 @@ type FChatClient struct {
 	// listsLock makes sure only one list request runs at a time.
 	listsLock sync.Mutex
 
+	// ownProfile is the character's own F-List profile, for kink matches.
+	ownProfile        *fchat.CharacterData
+	ownProfileFetched time.Time
+	ownProfileLock    sync.Mutex
+
+	idleLock sync.Mutex
+	idle     idleState
+	// lastOnlineAlert is when the user was last told that a character came online.
+	lastOnlineAlert map[networkid.UserID]time.Time
+	// autoAdLock makes sure auto ads aren't posted twice at the same time.
+	autoAdLock sync.Mutex
+
 	metaLock sync.Mutex
 	// offlineLock makes sure queued messages are only sent once.
 	offlineLock    sync.Mutex
@@ -100,6 +112,8 @@ func (fc *FChatConnector) newClient(login *bridgev2.UserLogin) *FChatClient {
 		ignored:    make(map[networkid.UserID]bool),
 		friends:    make(map[networkid.UserID]string),
 		bookmarks:  make(map[networkid.UserID]string),
+
+		lastOnlineAlert: make(map[networkid.UserID]time.Time),
 	}
 	client.Conn = fchat.NewClient(fchat.ClientConfig{
 		ServerURL:     fc.Config.ServerURL,
@@ -218,6 +232,7 @@ func (c *FChatClient) onConnected() {
 	c.badCredentials.Store(false)
 	c.UserLogin.BridgeState.Send(status.BridgeState{StateEvent: status.StateConnected})
 	ctx := c.ctx()
+	c.resetIdle()
 	if msg := c.Main.Config.DefaultStatusMessage; msg != "" {
 		err := c.Conn.Send(ctx, fchat.CmdStatus, &fchat.StatusRequest{Status: fchat.StatusOnline, StatusMsg: msg})
 		if err != nil {
