@@ -2,9 +2,11 @@ package connector
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
+	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
@@ -82,12 +84,12 @@ func (fc *FChatConnector) cleanupGhosts(ctx context.Context) {
 		log.Err(err).Msg("Failed to get ghosts")
 		return
 	}
-	removed := 0
+	removed, leftChannels := 0, 0
 	for _, userID := range ids {
 		if ctx.Err() != nil {
 			return
 		}
-		if active[userID] || withDM[userID] {
+		if active[userID] {
 			continue
 		}
 		ghost, err := fc.Bridge.GetExistingGhostByID(ctx, userID)
@@ -96,6 +98,13 @@ func (fc *FChatConnector) cleanupGhosts(ctx context.Context) {
 		}
 		meta, ok := ghost.Metadata.(*GhostMetadata)
 		if !ok || meta.Removed {
+			continue
+		}
+		if meta.OfflineSince != 0 && !meta.LeftChannels && time.Since(time.Unix(meta.OfflineSince, 0)) > maxAge {
+			fc.leaveChannelRooms(ctx, ghost, fmt.Sprintf("Offline for more than %d days", fc.Config.GhostCleanupDays))
+			leftChannels++
+		}
+		if withDM[userID] {
 			continue
 		}
 		if meta.LastSeen == 0 {
@@ -112,9 +121,55 @@ func (fc *FChatConnector) cleanupGhosts(ctx context.Context) {
 		fc.retireGhost(ctx, ghost)
 		removed++
 	}
+	if leftChannels > 0 {
+		log.Info().Int("count", leftChannels).Msg("Removed offline ghosts from channel rooms")
+	}
 	if removed > 0 {
 		log.Info().Int("count", removed).Msg("Removed unused ghosts")
 	}
+}
+
+// leaveChannelRooms makes the ghost of a character that was offline for too long leave all
+// channel rooms. Private chats are kept.
+func (fc *FChatConnector) leaveChannelRooms(ctx context.Context, ghost *bridgev2.Ghost, reason string) {
+	log := fc.Bridge.Log.With().Str("ghost_id", string(ghost.ID)).Logger()
+	mc := fc.matrixConnector()
+	if mc == nil {
+		return
+	}
+	intent := mc.AS.Intent(ghost.Intent.GetMXID())
+	rooms, err := intent.JoinedRooms(ctx)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to get joined rooms of offline ghost")
+		return
+	}
+	for _, roomID := range rooms.JoinedRooms {
+		portal, err := fc.Bridge.GetPortalByMXID(ctx, roomID)
+		if err != nil || portal == nil {
+			continue
+		}
+		if _, dmUser, ok := parsePortalID(portal.ID); !ok || dmUser != "" {
+			continue
+		}
+		if _, err = intent.LeaveRoom(ctx, roomID, &mautrix.ReqLeave{Reason: reason}); err != nil {
+			log.Warn().Err(err).Stringer("room_id", roomID).Msg("Failed to leave channel room")
+		}
+	}
+	for _, login := range fc.Bridge.GetAllCachedUserLogins() {
+		if client, ok := login.Client.(*FChatClient); ok {
+			client.stateLock.Lock()
+			for _, ch := range client.channels {
+				delete(ch.Offline, ghost.ID)
+			}
+			client.stateLock.Unlock()
+		}
+	}
+	meta := ghost.Metadata.(*GhostMetadata)
+	meta.LeftChannels = true
+	if err = fc.Bridge.DB.Ghost.Update(ctx, ghost.Ghost); err != nil {
+		log.Err(err).Msg("Failed to save offline ghost")
+	}
+	log.Debug().Msg("Removed offline ghost from channel rooms")
 }
 
 // allGhostIDs returns the IDs of all ghosts in the database.

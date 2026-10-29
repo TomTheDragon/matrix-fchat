@@ -35,6 +35,10 @@ type Config struct {
 	FetchCharacterProfiles bool `yaml:"fetch_character_profiles"`
 	BeeperProfileFields    bool `yaml:"beeper_profile_fields"`
 	GhostCleanupDays       int  `yaml:"ghost_cleanup_days"`
+
+	BridgePresence         bool   `yaml:"bridge_presence"`
+	PresenceRefreshSeconds int    `yaml:"presence_refresh_seconds"`
+	OfflineNameSuffix      string `yaml:"offline_name_suffix"`
 }
 
 func (c *Config) ErrorWait() time.Duration {
@@ -73,6 +77,9 @@ func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.Bool, "fetch_character_profiles")
 	helper.Copy(up.Bool, "beeper_profile_fields")
 	helper.Copy(up.Int, "ghost_cleanup_days")
+	helper.Copy(up.Bool, "bridge_presence")
+	helper.Copy(up.Int, "presence_refresh_seconds")
+	helper.Copy(up.Str, "offline_name_suffix")
 }
 
 func (fc *FChatConnector) GetConfig() (string, any, up.Upgrader) {
@@ -91,6 +98,7 @@ func (fc *FChatConnector) GetConfig() (string, any, up.Upgrader) {
 			{"fetch_character_profiles"},
 			{"beeper_profile_fields"},
 			{"ghost_cleanup_days"},
+			{"bridge_presence"},
 		},
 		Base: ExampleConfig,
 	}

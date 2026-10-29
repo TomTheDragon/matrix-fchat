@@ -37,6 +37,7 @@ type FChatConnector struct {
 	images        imageCache
 	searchOptions searchOptionsCache
 	profiles      profileFetcher
+	presence      presenceTracker
 }
 
 var (
@@ -68,6 +69,7 @@ func (fc *FChatConnector) userAgent() string {
 }
 
 func (fc *FChatConnector) Start(ctx context.Context) error {
+	fc.startPresence(ctx)
 	fc.startGhostCleanup()
 	fc.startTimers()
 	return nil

@@ -49,6 +49,13 @@ type GhostMetadata struct {
 	LastSeen int64 `json:"last_seen,omitempty"`
 	// Removed is set when the ghost cleanup cleared the ghost's profile and rooms.
 	Removed bool `json:"removed,omitempty"`
+	// OfflineSince is when the character went offline (unix seconds), 0 while it's online.
+	// Ghosts stay in channel rooms while offline, until ghost_cleanup_days are over.
+	OfflineSince int64 `json:"offline_since,omitempty"`
+	// LeftChannels is set when the ghost left the channel rooms after being offline too long.
+	LeftChannels bool `json:"left_channels,omitempty"`
+	// NameSuffix is the offline suffix that the ghost's display name currently has.
+	NameSuffix string `json:"name_suffix,omitempty"`
 	// ProfileFieldsHash is the hash of the custom profile fields that were last set, so that
 	// they're only sent to the homeserver when they changed.
 	ProfileFieldsHash string `json:"profile_fields_hash,omitempty"`

@@ -114,12 +114,22 @@ mautrix normally also adds `com.beeper.bridge.*` fields (remote ID, identifiers,
 every ghost profile, which only Beeper clients use. The bridge leaves them out and removes
 existing ones, unless `network: beeper_profile_fields` is enabled.
 
-### Ghost cleanup
+### Offline characters and ghost cleanup
 
-With `network: ghost_cleanup_days` set, ghosts that weren't seen for that many days and that
-nobody has a private chat with are removed once an hour: they leave all rooms and their Matrix
-profile is cleared (an appservice can't delete Matrix accounts). They're restored automatically
-when the character shows up again. The cleanup only runs while all logins are connected.
+Characters that go offline aren't removed from the channel rooms. Their ghost gets the Matrix
+presence "offline" instead (`network: bridge_presence`), and, for homeservers with presence
+disabled, optionally a suffix on its name (`network: offline_name_suffix`, e.g. `" (offline)"`).
+When a character comes back online without rejoining a channel within two minutes, it leaves the
+room. Synapse resets the presence of users that don't sync after 30 seconds, so the bridge sets the
+presence of online channel members and private chat partners again every
+`network: presence_refresh_seconds`.
+
+With `network: ghost_cleanup_days` set, characters that were offline for that many days leave the
+channel rooms (private chats are kept), and ghosts that weren't seen for that many days and that
+nobody has a private chat with are removed: they leave all rooms and their Matrix profile is
+cleared (an appservice can't delete Matrix accounts). They're restored automatically when the
+character shows up again. The cleanup runs once an hour, only while all logins are connected.
+Without `ghost_cleanup_days`, offline characters stay in the channel rooms.
 
 ### Join and chat links
 

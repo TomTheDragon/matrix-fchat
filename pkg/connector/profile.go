@@ -155,6 +155,13 @@ func (c *FChatClient) updateGhostExtras(ctx context.Context, ghost *bridgev2.Gho
 		meta.LastSeen = now.Unix()
 		changed = true
 	}
+	// The name was set by makeUserInfo, with the offline suffix if the ghost is offline.
+	// The info may come without a name, then the old suffix stays.
+	if suffix := c.Main.offlineSuffix(ghost.ID); meta.NameSuffix != suffix && strings.HasSuffix(ghost.Name, suffix) &&
+		(meta.NameSuffix == "" || !strings.HasSuffix(ghost.Name, meta.NameSuffix)) {
+		meta.NameSuffix = suffix
+		changed = true
+	}
 	if gender := c.onlineGender(ghost.ID); gender != "" && gender != meta.Gender {
 		meta.Gender = gender
 		changed = true

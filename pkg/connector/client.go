@@ -39,6 +39,9 @@ type channelState struct {
 	Synced bool
 	// Initialized is set once ICH was received.
 	Initialized bool
+	// Offline are members that went offline while in the channel. They stay in the Matrix
+	// room until they come back, or until the ghost cleanup removes them.
+	Offline map[networkid.UserID]string
 }
 
 type FChatClient struct {
@@ -90,6 +93,10 @@ type FChatClient struct {
 
 	firstConnectLock sync.Mutex
 	firstConnect     chan error
+
+	// presenceSyncTimer compares all ghosts with the online list after connecting.
+	presenceSyncLock  sync.Mutex
+	presenceSyncTimer *time.Timer
 }
 
 var (

@@ -11,6 +11,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
 
 	"matrix-fchat/pkg/bbcode"
 	"matrix-fchat/pkg/fchat"
@@ -29,7 +30,7 @@ func (c *FChatClient) GetChatInfo(ctx context.Context, portal *bridgev2.Portal) 
 	if dmUser != "" {
 		return c.dmChatInfo(dmUser), nil
 	}
-	return c.channelChatInfo(channel, portal), nil
+	return c.channelChatInfo(ctx, channel, portal), nil
 }
 
 func (c *FChatClient) dmChatInfo(other networkid.UserID) *bridgev2.ChatInfo {
@@ -60,7 +61,7 @@ func (c *FChatClient) userInfoByID(userID networkid.UserID) *bridgev2.UserInfo {
 	return info
 }
 
-func (c *FChatClient) channelChatInfo(channel string, portal *bridgev2.Portal) *bridgev2.ChatInfo {
+func (c *FChatClient) channelChatInfo(ctx context.Context, channel string, portal *bridgev2.Portal) *bridgev2.ChatInfo {
 	c.stateLock.RLock()
 	ch, known := c.channels[channel]
 	var title, description string
@@ -84,6 +85,9 @@ func (c *FChatClient) channelChatInfo(channel string, portal *bridgev2.Portal) *
 		}
 	}
 	c.stateLock.RUnlock()
+	if synced && portal != nil && portal.MXID != "" {
+		members = append(members, c.offlineMembers(ctx, channel, portal.MXID)...)
+	}
 
 	if title == "" {
 		c.metaLock.Lock()
@@ -131,6 +135,81 @@ func (c *FChatClient) channelChatInfo(channel string, portal *bridgev2.Portal) *
 	}
 	info.Members = memberList
 	return info
+}
+
+// offlineMembers returns the ghosts in a channel room that went offline while in the channel,
+// so that a full member sync (e.g. after reconnecting) doesn't remove them. Ghosts of online
+// characters that aren't in the channel and of characters that were offline for longer than
+// ghost_cleanup_days are left out, so they're removed.
+func (c *FChatClient) offlineMembers(ctx context.Context, channel string, roomID id.RoomID) []bridgev2.ChatMember {
+	current, err := c.Main.Bridge.Matrix.GetMembers(ctx, roomID)
+	if err != nil {
+		c.log.Warn().Err(err).Str("channel", channel).Msg("Failed to get room members to keep offline members")
+		return nil
+	}
+	var candidates []networkid.UserID
+	c.stateLock.RLock()
+	ch, ok := c.channels[channel]
+	if ok {
+		for mxid, member := range current {
+			if member.Membership != event.MembershipJoin {
+				continue
+			}
+			userID, isGhost := c.Main.Bridge.Matrix.ParseGhostMXID(mxid)
+			if !isGhost || userID == c.ownID {
+				continue
+			}
+			if _, online := ch.Members[userID]; online {
+				continue
+			}
+			if info, known := c.characters[userID]; known && !isOfflineStatus(info.Status) {
+				// Online, but not in the channel anymore.
+				continue
+			}
+			candidates = append(candidates, userID)
+		}
+	}
+	c.stateLock.RUnlock()
+
+	maxAge := time.Duration(c.Main.Config.GhostCleanupDays) * 24 * time.Hour
+	kept := candidates[:0]
+	for _, userID := range candidates {
+		if maxAge <= 0 || !c.offlineTooLong(ctx, userID, maxAge) {
+			kept = append(kept, userID)
+		}
+	}
+
+	c.stateLock.Lock()
+	defer c.stateLock.Unlock()
+	ch, ok = c.channels[channel]
+	if !ok {
+		return nil
+	}
+	offline := make(map[networkid.UserID]string, len(kept))
+	members := make([]bridgev2.ChatMember, 0, len(kept))
+	for _, userID := range kept {
+		if _, online := ch.Members[userID]; online {
+			continue
+		}
+		name := ch.Offline[userID]
+		if name == "" {
+			name = string(userID)
+		}
+		offline[userID] = name
+		members = append(members, bridgev2.ChatMember{EventSender: c.sender(name), Membership: event.MembershipJoin})
+	}
+	ch.Offline = offline
+	return members
+}
+
+// offlineTooLong returns whether a character was offline for longer than maxAge.
+func (c *FChatClient) offlineTooLong(ctx context.Context, userID networkid.UserID, maxAge time.Duration) bool {
+	ghost, err := c.Main.Bridge.GetExistingGhostByID(ctx, userID)
+	if err != nil || ghost == nil {
+		return false
+	}
+	meta, ok := ghost.Metadata.(*GhostMetadata)
+	return ok && meta.OfflineSince != 0 && time.Since(time.Unix(meta.OfflineSince, 0)) > maxAge
 }
 
 // powerLevelOverrides maps F-Chat channel owners and operators to Matrix power levels.
@@ -207,7 +286,7 @@ func avatarID(avatarURL string, now time.Time) networkid.AvatarID {
 func (fc *FChatConnector) makeUserInfo(name string) *bridgev2.UserInfo {
 	avatarURL := fchat.AvatarURL(fc.Config.StaticURL, name)
 	info := &bridgev2.UserInfo{
-		Name: ptrTo(name),
+		Name: ptrTo(name + fc.offlineSuffix(makeUserID(name))),
 		Avatar: &bridgev2.Avatar{
 			ID: avatarID(avatarURL, time.Now()),
 			Get: func(ctx context.Context) ([]byte, error) {

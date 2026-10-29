@@ -511,6 +511,8 @@ func (c *FChatClient) handleJoin(join *fchat.JoinChannel) {
 	}
 	_, alreadyMember := ch.Members[userID]
 	ch.Members[userID] = name
+	// Members that were offline are still in the Matrix room.
+	delete(ch.Offline, userID)
 	synced := ch.Synced && ch.Initialized
 	c.stateLock.Unlock()
 	if alreadyMember || !synced {
@@ -570,7 +572,10 @@ func (c *FChatClient) handleLeave(channel, character, operator string, membershi
 		return
 	}
 	_, wasMember := ch.Members[userID]
+	_, wasOffline := ch.Offline[userID]
+	wasMember = wasMember || wasOffline
 	delete(ch.Members, userID)
+	delete(ch.Offline, userID)
 	synced := ch.Synced
 	c.stateLock.Unlock()
 	if !synced || (!wasMember && operator == "") {
@@ -750,7 +755,21 @@ func (c *FChatClient) handleOnline(nln *fchat.OnlineNotice) {
 		Gender: nln.Gender,
 		Status: nln.Status,
 	}
+	wasInChannel := false
+	for _, ch := range c.channels {
+		if _, ok := ch.Offline[userID]; ok {
+			wasInChannel = true
+			break
+		}
+	}
 	c.stateLock.Unlock()
+	if userID != c.ownID {
+		c.Main.queuePresence(userID, nln.Status, "")
+	}
+	if wasInChannel {
+		// Give the character's client some time to rejoin its channels.
+		time.AfterFunc(rejoinGrace, func() { c.checkRejoined(userID, nln.Identity) })
+	}
 	if c.hasOfflineMessages(userID) {
 		go c.deliverOfflineMessagesTo(userID)
 	}
@@ -762,6 +781,7 @@ func (c *FChatClient) handleOnline(nln *fchat.OnlineNotice) {
 func (c *FChatClient) handleOnlineList(lis *fchat.OnlineList) {
 	// Messages may have been queued for characters that came online while disconnected.
 	defer func() { go c.deliverOfflineMessages() }()
+	defer c.schedulePresenceSync()
 	c.stateLock.Lock()
 	defer c.stateLock.Unlock()
 	for _, entry := range lis.Characters {
@@ -784,28 +804,27 @@ func (c *FChatClient) handleOnlineList(lis *fchat.OnlineList) {
 
 func (c *FChatClient) handleOffline(character string) {
 	userID := makeUserID(character)
-	var leftChannels []string
 	c.stateLock.Lock()
 	if info, ok := c.characters[userID]; ok {
 		info.Status = fchat.StatusOffline
 		info.StatusMsg = ""
 	}
-	for chID, ch := range c.channels {
-		if _, ok := ch.Members[userID]; ok {
+	// FLN is a global leave for all channels the character was in. The ghost stays in the
+	// channel rooms though, and only its presence changes. It's removed from the rooms when it
+	// comes back without rejoining, or by the ghost cleanup after ghost_cleanup_days.
+	for _, ch := range c.channels {
+		if name, ok := ch.Members[userID]; ok {
 			delete(ch.Members, userID)
 			if ch.Synced {
-				leftChannels = append(leftChannels, chID)
+				if ch.Offline == nil {
+					ch.Offline = make(map[networkid.UserID]string)
+				}
+				ch.Offline[userID] = name
 			}
 		}
 	}
 	c.stateLock.Unlock()
-	// FLN is a global leave for all channels the character was in.
-	for _, channel := range leftChannels {
-		c.queueMemberChange(channel, bridgev2.ChatMember{
-			EventSender: c.sender(character),
-			Membership:  event.MembershipLeave,
-		})
-	}
+	c.Main.queuePresence(userID, fchat.StatusOffline, "")
 }
 
 func (c *FChatClient) handleStatus(sta *fchat.StatusChange) {
@@ -820,6 +839,9 @@ func (c *FChatClient) handleStatus(sta *fchat.StatusChange) {
 	info.Status = sta.Status
 	info.StatusMsg = statusMsg
 	c.stateLock.Unlock()
+	if userID != c.ownID {
+		c.Main.queuePresence(userID, sta.Status, statusMsg)
+	}
 	if !c.Main.Config.BridgeStatusChanges || userID == c.ownID {
 		return
 	}

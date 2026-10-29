@@ -67,5 +67,19 @@ beeper_profile_fields: false
 # Remove ghost users that weren't seen for this many days and that nobody has a private
 # chat with: they leave all rooms and their Matrix profile is cleared (an appservice can't
 # delete Matrix accounts). They come back automatically if the character shows up again.
-# 0 disables the cleanup.
+# Characters that go offline stay in the channel rooms; after being offline for this many
+# days, they leave the channel rooms (private chats are kept).
+# 0 disables the cleanup, and offline characters stay in the channel rooms.
 ghost_cleanup_days: 0
+
+# Should the F-Chat status of characters be shown as Matrix presence? Online and looking
+# become "online", idle, away, busy and DND become "unavailable" (with the status message).
+bridge_presence: true
+# How often (in seconds) the presence of online characters is set again. Synapse resets the
+# presence of users that don't sync after 30 seconds, so the bridge has to repeat it. Only
+# members of synced channels and characters with a private chat are refreshed.
+# 0 only sets the presence when it changes.
+presence_refresh_seconds: 25
+# Added to the names of offline characters, for homeservers that have presence disabled,
+# e.g. " (offline)". Empty disables it.
+offline_name_suffix: ""
