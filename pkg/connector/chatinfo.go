@@ -341,7 +341,7 @@ func (c *FChatClient) GetCapabilities(ctx context.Context, portal *bridgev2.Port
 		}
 	}
 	return &event.RoomFeatures{
-		ID: "fi.mau.fchat.capabilities.2026_10_25",
+		ID: "fi.mau.fchat.capabilities.2026_10_31",
 		Formatting: event.FormattingFeatureMap{
 			event.FmtBold:                event.CapLevelFullySupported,
 			event.FmtItalic:              event.CapLevelFullySupported,
@@ -360,14 +360,15 @@ func (c *FChatClient) GetCapabilities(ctx context.Context, portal *bridgev2.Port
 			event.FmtOrderedList:         event.CapLevelPartialSupport,
 			event.FmtHeaders:             event.CapLevelPartialSupport,
 		},
-		File:                files,
-		MaxTextLength:       maxLength,
-		LocationMessage:     event.CapLevelRejected,
-		Poll:                event.CapLevelRejected,
-		Reply:               event.CapLevelDropped,
-		Thread:              event.CapLevelDropped,
-		Edit:                event.CapLevelRejected,
-		Delete:              event.CapLevelRejected,
+		File:            files,
+		MaxTextLength:   maxLength,
+		LocationMessage: event.CapLevelRejected,
+		Poll:            event.CapLevelRejected,
+		Reply:           event.CapLevelDropped,
+		Thread:          event.CapLevelDropped,
+		Edit:            event.CapLevelRejected,
+		// Only messages that are waiting for an offline character can be deleted.
+		Delete:              event.CapLevelPartialSupport,
 		Reaction:            event.CapLevelRejected,
 		TypingNotifications: channel == "",
 	}

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
@@ -26,6 +27,8 @@ type queuedMessage struct {
 	Recipient string `json:"recipient"`
 	Text      string `json:"text"`
 	Queued    int64  `json:"queued"`
+	// The Matrix message that was queued, so that deleting it removes it from the queue.
+	Original id.EventID `json:"original,omitempty"`
 	// The notice that told the user that the message is waiting. It's edited once the
 	// message was sent.
 	NoticeRoom  id.RoomID  `json:"notice_room,omitempty"`
@@ -63,6 +66,7 @@ func (c *FChatClient) queueOfflineMessage(ctx context.Context, recipient, text s
 		Recipient:   recipient,
 		Text:        text,
 		Queued:      time.Now().Unix(),
+		Original:    original,
 		NoticeRoom:  roomID,
 		NoticeEvent: eventID,
 	})
@@ -145,6 +149,54 @@ func (c *FChatClient) deliverOfflineMessagesTo(userID networkid.UserID) {
 	if err := c.UserLogin.Save(ctx); err != nil {
 		c.log.Err(err).Msg("Failed to save login after sending queued messages")
 	}
+}
+
+var _ bridgev2.RedactionHandlingNetworkAPI = (*FChatClient)(nil)
+
+var errCantDelete = bridgev2.WrapErrorInStatus(errors.New("F-Chat doesn't support deleting messages that were already sent")).
+	WithIsCertain(true).WithSendNotice(false).WithErrorAsMessage()
+
+// HandleMatrixMessageRemove removes a deleted message from the offline queue, so it isn't
+// sent when the character comes online, and deletes its notice. Messages that were
+// already sent can't be deleted on F-Chat.
+func (c *FChatClient) HandleMatrixMessageRemove(ctx context.Context, msg *bridgev2.MatrixMessageRemove) error {
+	_, dmUser, ok := parsePortalID(msg.Portal.ID)
+	target := msg.TargetMessage.MXID
+	if !ok || dmUser == "" || target == "" {
+		return errCantDelete
+	}
+	// Wait for a running delivery, so the message is either sent or removed, never both.
+	c.offlineLock.Lock()
+	defer c.offlineLock.Unlock()
+	c.metaLock.Lock()
+	meta := c.meta()
+	queue := meta.OfflineMessages[string(dmUser)]
+	idx := slices.IndexFunc(queue, func(m queuedMessage) bool { return m.Original == target })
+	var removed queuedMessage
+	if idx >= 0 {
+		removed = queue[idx]
+		queue = slices.Delete(slices.Clone(queue), idx, idx+1)
+		if len(queue) == 0 {
+			delete(meta.OfflineMessages, string(dmUser))
+		} else {
+			meta.OfflineMessages[string(dmUser)] = queue
+		}
+	}
+	c.metaLock.Unlock()
+	if idx < 0 {
+		return errCantDelete
+	}
+	if err := c.UserLogin.Save(ctx); err != nil {
+		c.log.Err(err).Msg("Failed to save login after removing queued message")
+	}
+	if removed.NoticeRoom != "" && removed.NoticeEvent != "" {
+		content := &event.RedactionEventContent{Redacts: removed.NoticeEvent, Reason: "Queued message was deleted"}
+		_, err := c.Main.Bridge.Bot.SendMessage(ctx, removed.NoticeRoom, event.EventRedaction, &event.Content{Parsed: content}, nil)
+		if err != nil {
+			c.log.Err(err).Msg("Failed to delete queued message notice")
+		}
+	}
+	return nil
 }
 
 // editNotice replaces the text of a queued message's notice, or sends a new notice if the
