@@ -26,8 +26,8 @@ func (fc *FChatConnector) dmPartnerName(ce *commands.Event, client *FChatClient)
 	if name := client.characterName(dmUser); name != "" {
 		return name
 	}
-	if ghost, _ := fc.Bridge.GetExistingGhostByID(ce.Ctx, dmUser); ghost != nil && ghost.Name != "" {
-		return ghost.Name
+	if ghost, _ := fc.Bridge.GetExistingGhostByID(ce.Ctx, dmUser); ghost != nil && fc.ghostCharacterName(ghost) != "" {
+		return fc.ghostCharacterName(ghost)
 	}
 	return string(dmUser)
 }

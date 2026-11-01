@@ -104,6 +104,19 @@ func (fc *FChatConnector) offlineSuffix(userID networkid.UserID) string {
 	return fc.Config.OfflineNameSuffix
 }
 
+// ghostCharacterName returns the character name of a ghost, from its display name without
+// the offline suffix. The avatar and profile URLs are built from this name.
+func (fc *FChatConnector) ghostCharacterName(ghost *bridgev2.Ghost) string {
+	name := ghost.Name
+	if meta, ok := ghost.Metadata.(*GhostMetadata); ok && meta.NameSuffix != "" && strings.HasSuffix(name, meta.NameSuffix) {
+		return strings.TrimSuffix(name, meta.NameSuffix)
+	}
+	if suffix := fc.Config.OfflineNameSuffix; suffix != "" {
+		name = strings.TrimSuffix(name, suffix)
+	}
+	return name
+}
+
 // queuePresence records the new status of a character. The ghost is updated by the worker.
 func (fc *FChatConnector) queuePresence(userID networkid.UserID, status fchat.Status, statusMsg string) {
 	p := &fc.presence

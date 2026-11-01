@@ -188,8 +188,8 @@ func (c *FChatClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.Mat
 		}
 		recipient := c.characterName(dmUser)
 		if recipient == "" {
-			if ghost, _ := c.Main.Bridge.GetExistingGhostByID(ctx, dmUser); ghost != nil && ghost.Name != "" {
-				recipient = ghost.Name
+			if ghost, _ := c.Main.Bridge.GetExistingGhostByID(ctx, dmUser); ghost != nil && c.Main.ghostCharacterName(ghost) != "" {
+				recipient = c.Main.ghostCharacterName(ghost)
 			} else {
 				recipient = string(dmUser)
 			}
@@ -251,7 +251,7 @@ func (c *FChatClient) HandleMatrixMembership(ctx context.Context, msg *bridgev2.
 	}
 	name := c.characterName(ghost.ID)
 	if name == "" {
-		name = ghost.Name
+		name = c.Main.ghostCharacterName(ghost)
 	}
 	if name == "" {
 		return nil, fmt.Errorf("unknown character %s", ghost.ID)

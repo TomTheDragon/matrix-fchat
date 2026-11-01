@@ -265,9 +265,7 @@ func (c *FChatClient) powerLevelOverrides(channel string) *bridgev2.PowerLevelOv
 func (c *FChatClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridgev2.UserInfo, error) {
 	name := c.characterName(ghost.ID)
 	if name == "" {
-		if ghost.Name != "" {
-			name = ghost.Name
-		} else {
+		if name = c.Main.ghostCharacterName(ghost); name == "" {
 			name = string(ghost.ID)
 		}
 	}
