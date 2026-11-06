@@ -14,13 +14,13 @@ import (
 )
 
 // dmPartnerName returns the name of the character the DM portal the command was sent in is
-// with, or "" outside of DM rooms.
+// with, or "" outside of DM rooms and in the broadcast chat.
 func (fc *FChatConnector) dmPartnerName(ce *commands.Event, client *FChatClient) string {
 	if ce.Portal == nil {
 		return ""
 	}
 	_, dmUser, ok := parsePortalID(ce.Portal.ID)
-	if !ok || dmUser == "" {
+	if !ok || dmUser == "" || dmUser == broadcastUserID {
 		return ""
 	}
 	if name := client.characterName(dmUser); name != "" {
