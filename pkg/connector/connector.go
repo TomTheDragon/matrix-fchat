@@ -35,6 +35,7 @@ type FChatConnector struct {
 	HTTP    *http.Client
 
 	images        imageCache
+	directMedia   bool
 	searchOptions searchOptionsCache
 	profiles      profileFetcher
 	presence      presenceTracker

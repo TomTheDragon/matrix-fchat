@@ -132,6 +132,28 @@ cleared (an appservice can't delete Matrix accounts). They're restored automatic
 character shows up again. The cleanup runs once an hour, only while all logins are connected.
 Without `ghost_cleanup_days`, offline characters stay in the channel rooms.
 
+### Direct media access
+
+By default, avatars, eicons, emoticons and combined eicon stickers are downloaded from F-List and
+uploaded to your homeserver. With `direct_media` in `config.yaml`, the bridge serves them itself
+instead: it gives them `mxc://` URIs on its own media server, and the homeserver fetches them from
+the bridge (which gets them from F-List) only when someone opens them. Avatars of characters you
+never look at aren't downloaded at all.
+
+```yaml
+direct_media:
+    enabled: true
+    server_name: fchat-media.example.com
+```
+
+The homeserver reaches that server name over federation, so it must point at the bridge's
+appservice port: either proxy `https://fchat-media.example.com` to the bridge, or serve
+`/.well-known/matrix/server` on that domain with `{"m.server": "bridge.example.com:443"}`, where
+`bridge.example.com` is proxied to the bridge. Check it with the
+[federation tester](https://federationtester.matrix.org/). Images that were uploaded before stay
+as they are; avatars switch to direct media with their next weekly refresh. Combinations of very
+many eicons whose URI would be too long are still uploaded.
+
 ### Join and chat links
 
 The `channels`, `rooms`, `friends` and `bookmarks` lists (and `[user]` names in messages) contain

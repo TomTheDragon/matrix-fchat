@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/gif"
 	_ "image/jpeg"
@@ -22,10 +23,14 @@ import (
 
 // Matrix clients only show mxc:// images inline, so eicons and emoticons are
 // uploaded once and the mxc:// URIs are kept in the bridge's key-value store.
+// With direct media, they get mxc:// URIs on the bridge's media server instead.
 
 const (
 	// The key-value store keeps JSON-encoded cachedImages. Older versions stored only the mxc:// URI.
 	imageCacheKeyPrefix = "fchat_image:"
+	// Images with direct media URIs are kept separately, so turning direct media off again
+	// doesn't leave URIs that point at a media server that's gone.
+	directImageCacheKeyPrefix = "fchat_image_dm:"
 	// imageFailureTTL is how long a failed download isn't retried (e.g. eicons that don't exist).
 	imageFailureTTL = time.Hour
 	imageTimeout    = 15 * time.Second
@@ -102,7 +107,7 @@ func (fc *FChatConnector) image(ctx context.Context, url string) *cachedImage {
 	if img, failed := fc.images.get(url); img != nil || failed {
 		return img
 	}
-	kvKey := database.Key(imageCacheKeyPrefix + url)
+	kvKey := fc.imageCacheKey(url)
 	if stored := fc.Bridge.DB.KV.Get(ctx, kvKey); strings.HasPrefix(stored, "{") {
 		var img cachedImage
 		if err := json.Unmarshal([]byte(stored), &img); err == nil && img.MXC != "" {
@@ -125,7 +130,9 @@ func (fc *FChatConnector) image(ctx context.Context, url string) *cachedImage {
 		fc.images.set(url, nil)
 		return nil
 	}
-	img.MXC, _, err = fc.Bridge.Bot.UploadMedia(ctx, "", data, path.Base(url), img.MimeType)
+	if img.MXC = fc.directMXC(ctx, urlMediaID(url)); img.MXC == "" {
+		img.MXC, _, err = fc.Bridge.Bot.UploadMedia(ctx, "", data, path.Base(url), img.MimeType)
+	}
 	if err != nil {
 		// Don't remember upload failures, they're probably temporary.
 		log.Warn().Err(err).Msg("Failed to upload image")
@@ -152,7 +159,7 @@ func (fc *FChatConnector) combinedEIcons(ctx context.Context, names []string) *c
 	if img, failed := fc.images.get(key); img != nil || failed {
 		return img
 	}
-	kvKey := database.Key(imageCacheKeyPrefix + key)
+	kvKey := fc.imageCacheKey(key)
 	if stored := fc.Bridge.DB.KV.Get(ctx, kvKey); stored != "" {
 		var img cachedImage
 		if err := json.Unmarshal([]byte(stored), &img); err == nil && img.MXC != "" {
@@ -163,27 +170,9 @@ func (fc *FChatConnector) combinedEIcons(ctx context.Context, names []string) *c
 	ctx, cancel := context.WithTimeout(ctx, imageTimeout)
 	defer cancel()
 	log := fc.Bridge.Log.With().Strs("eicons", names).Logger()
-	sources := make([][]animFrame, len(names))
-	decoded := make(map[string][]animFrame)
-	for i, name := range lower {
-		if frames, ok := decoded[name]; ok {
-			sources[i] = frames
-			continue
-		}
-		data, err := fc.download(ctx, fchat.EIconURL(fc.Config.StaticURL, name))
-		if err == nil {
-			sources[i], err = decodeFrames(data, eiconCell)
-		}
-		if err != nil {
-			log.Debug().Err(err).Str("eicon", name).Msg("Failed to load eicon for combined image")
-			fc.images.set(key, nil)
-			return nil
-		}
-		decoded[name] = sources[i]
-	}
-	data, mimeType, width, height, animated, err := combineEIcons(sources, eiconCell)
+	data, mimeType, width, height, animated, err := fc.renderCombinedEIcons(ctx, lower)
 	if err != nil {
-		log.Warn().Err(err).Msg("Failed to combine eicons")
+		log.Debug().Err(err).Msg("Failed to combine eicons")
 		fc.images.set(key, nil)
 		return nil
 	}
@@ -192,7 +181,9 @@ func (fc *FChatConnector) combinedEIcons(ctx context.Context, names []string) *c
 	if animated {
 		fileName = "eicons.gif"
 	}
-	img.MXC, _, err = fc.Bridge.Bot.UploadMedia(ctx, "", data, fileName, mimeType)
+	if img.MXC = fc.directMXC(ctx, eiconsMediaID(lower)); img.MXC == "" {
+		img.MXC, _, err = fc.Bridge.Bot.UploadMedia(ctx, "", data, fileName, mimeType)
+	}
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to upload combined eicons")
 		return nil
@@ -202,6 +193,36 @@ func (fc *FChatConnector) combinedEIcons(ctx context.Context, names []string) *c
 	}
 	fc.images.set(key, img)
 	return img
+}
+
+func (fc *FChatConnector) imageCacheKey(key string) database.Key {
+	if fc.directMedia {
+		return database.Key(directImageCacheKeyPrefix + key)
+	}
+	return database.Key(imageCacheKeyPrefix + key)
+}
+
+// renderCombinedEIcons downloads eicons (lowercase names) and puts them next to each other.
+func (fc *FChatConnector) renderCombinedEIcons(ctx context.Context, lowerNames []string) (data []byte, mimeType string, width, height int, animated bool, err error) {
+	sources := make([][]animFrame, len(lowerNames))
+	decoded := make(map[string][]animFrame)
+	for i, name := range lowerNames {
+		if frames, ok := decoded[name]; ok {
+			sources[i] = frames
+			continue
+		}
+		var raw []byte
+		raw, err = fc.download(ctx, fchat.EIconURL(fc.Config.StaticURL, name))
+		if err == nil {
+			sources[i], err = decodeFrames(raw, eiconCell)
+		}
+		if err != nil {
+			err = fmt.Errorf("eicon %s: %w", name, err)
+			return
+		}
+		decoded[name] = sources[i]
+	}
+	return combineEIcons(sources, eiconCell)
 }
 
 // avatarMXC returns the mxc:// URI of a character's avatar, updating the ghost if needed.
