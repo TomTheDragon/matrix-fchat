@@ -172,7 +172,7 @@ func (fc *FChatConnector) leaveChannelRooms(ctx context.Context, ghost *bridgev2
 	log.Debug().Msg("Removed offline ghost from channel rooms")
 }
 
-// allGhostIDs returns the IDs of all ghosts in the database.
+// allGhostIDs returns the IDs of all character ghosts in the database.
 func (fc *FChatConnector) allGhostIDs(ctx context.Context) ([]networkid.UserID, error) {
 	rows, err := fc.Bridge.DB.Query(ctx, "SELECT id FROM ghost WHERE bridge_id=$1", fc.Bridge.ID)
 	if err != nil {
@@ -185,7 +185,7 @@ func (fc *FChatConnector) allGhostIDs(ctx context.Context) ([]networkid.UserID, 
 		if err = rows.Scan(&userID); err != nil {
 			return nil, err
 		}
-		if userID != "" {
+		if userID != "" && userID != broadcastUserID {
 			ids = append(ids, userID)
 		}
 	}

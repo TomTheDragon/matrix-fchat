@@ -24,7 +24,8 @@ built on [mautrix-go bridgev2](https://pkg.go.dev/maunium.net/go/mautrix/bridgev
 | Kick / ban / timeout (CKU, CBU, CUB, CTU, CBL)  | Kick / ban in Matrix (both directions for kick, ban, unban, invite); `kick`, `ban`, `unban`, `timeout`, `banlist` commands |
 | Channel mode / room visibility (RMO, RST)       | Notice; change with `channel-mode` and `room-visibility`                 |
 | Member list (ICH, JCH, LCH, FLN)                | Room members (up to `member_sync_limit`)                                 |
-| Invites, system messages, broadcasts, notes     | Notices in the management room                                           |
+| Invites, system messages, notes                 | Notices in the management room                                           |
+| Broadcasts (BRO)                                | Notices in a private chat with the "F-Chat Broadcast" ghost              |
 | Ignore list                                     | Messages from ignored characters are dropped                             |
 | Friends                                         | A DM room per friend (`create_friend_dms`), contact list, `friends` command; send, accept, deny and cancel requests and remove friends with `friend` and `friend-requests` |
 | Bookmarks                                       | Contact list; `bookmarks` lists them with avatars, gender colors and online status; `bookmark add/remove` |

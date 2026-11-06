@@ -135,7 +135,7 @@ func (c *FChatClient) handleCommand(cmd fchat.RawCommand) {
 		}
 	case fchat.CmdBroadcast:
 		if bro, ok := parsePayload[fchat.Broadcast](c, cmd); ok {
-			c.sendManagementNotice(c.ctx(), "**F-Chat broadcast:** "+bbcode.ToPlain(bbcode.DecodeEntities(bro.Message)))
+			c.handleBroadcast(bro)
 		}
 	case fchat.CmdRealtimeBridge:
 		if rtb, ok := parsePayload[fchat.RealtimeBridge](c, cmd); ok {
@@ -904,6 +904,15 @@ func (c *FChatClient) handleSystemMessage(sys *fchat.SystemMessage) {
 		return
 	}
 	c.sendManagementNotice(c.ctx(), "**F-Chat:** "+text)
+}
+
+// handleBroadcast sends a broadcast to the private chat with the broadcast ghost.
+func (c *FChatClient) handleBroadcast(bro *fchat.Broadcast) {
+	if !c.Main.Config.BridgeNotices {
+		return
+	}
+	c.queueMessage(makeDMPortalKey(string(broadcastUserID), c.UserLogin.ID), string(broadcastUserID),
+		c.textMessage(bro.Message, event.MsgNotice, ""), true)
 }
 
 func (c *FChatClient) handleRealtimeBridge(rtb *fchat.RealtimeBridge) {

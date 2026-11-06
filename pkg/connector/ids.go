@@ -21,6 +21,13 @@ func makeUserLoginID(character string) networkid.UserLoginID {
 	return networkid.UserLoginID(makeUserID(character))
 }
 
+// broadcastUserID is the ghost that sends F-Chat broadcasts (BRO). Character names can't
+// contain dots, so it never collides with a character.
+const (
+	broadcastUserID   = networkid.UserID("fchat.broadcast")
+	broadcastUserName = "F-Chat Broadcast"
+)
+
 const (
 	channelPrefix = "c:"
 	dmPrefix      = "d:"

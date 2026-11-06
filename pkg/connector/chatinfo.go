@@ -53,6 +53,9 @@ func (c *FChatClient) dmChatInfo(other networkid.UserID) *bridgev2.ChatInfo {
 // userInfoByID returns the user info of a character. The name is only included
 // if the properly capitalized form is known.
 func (c *FChatClient) userInfoByID(userID networkid.UserID) *bridgev2.UserInfo {
+	if userID == broadcastUserID {
+		return broadcastUserInfo()
+	}
 	if name := c.characterName(userID); name != "" {
 		return c.userInfo(name)
 	}
@@ -263,6 +266,9 @@ func (c *FChatClient) powerLevelOverrides(channel string) *bridgev2.PowerLevelOv
 }
 
 func (c *FChatClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridgev2.UserInfo, error) {
+	if ghost.ID == broadcastUserID {
+		return broadcastUserInfo(), nil
+	}
 	name := c.characterName(ghost.ID)
 	if name == "" {
 		if name = c.Main.ghostCharacterName(ghost); name == "" {
@@ -270,6 +276,10 @@ func (c *FChatClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*
 		}
 	}
 	return c.userInfo(name), nil
+}
+
+func broadcastUserInfo() *bridgev2.UserInfo {
+	return &bridgev2.UserInfo{Name: ptrTo(broadcastUserName), IsBot: ptrTo(true)}
 }
 
 // avatarRefreshPeriod is how often avatars are downloaded again. F-List avatar URLs

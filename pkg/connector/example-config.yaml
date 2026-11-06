@@ -34,8 +34,8 @@ queue_offline_messages: true
 
 # Should status changes of characters you have a DM with be posted into the DM room?
 bridge_status_changes: false
-# Should F-Chat server notices (SYS, broadcasts, invites, notes) be sent to your
-# bridge management room?
+# Should F-Chat server notices (SYS, invites, notes) be sent to your bridge management
+# room? Broadcasts are sent to a private chat with the "F-Chat Broadcast" ghost.
 bridge_notices: true
 
 # Set your F-Chat status to "online" with this status message after connecting.

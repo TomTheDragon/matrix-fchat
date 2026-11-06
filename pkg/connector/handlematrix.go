@@ -146,6 +146,9 @@ func (c *FChatClient) mediaText(ctx context.Context, content *event.MessageEvent
 	return text, nil
 }
 
+var errBroadcastReadOnly = bridgev2.WrapErrorInStatus(errors.New("F-Chat broadcasts can't be answered")).
+	WithIsCertain(true).WithErrorAsMessage()
+
 func (c *FChatClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.MatrixMessage) (*bridgev2.MatrixMessageResponse, error) {
 	c.markActive(ctx)
 	if !c.Conn.IsConnected() {
@@ -154,6 +157,9 @@ func (c *FChatClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.Mat
 	channel, dmUser, ok := parsePortalID(msg.Portal.ID)
 	if !ok {
 		return nil, fmt.Errorf("invalid portal ID %q", msg.Portal.ID)
+	}
+	if dmUser == broadcastUserID {
+		return nil, errBroadcastReadOnly
 	}
 	content := msg.Content
 	var text string
