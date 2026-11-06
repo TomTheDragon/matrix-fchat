@@ -146,13 +146,43 @@ direct_media:
     server_name: fchat-media.example.com
 ```
 
-The homeserver reaches that server name over federation, so it must point at the bridge's
-appservice port: either proxy `https://fchat-media.example.com` to the bridge, or serve
-`/.well-known/matrix/server` on that domain with `{"m.server": "bridge.example.com:443"}`, where
-`bridge.example.com` is proxied to the bridge. Check it with the
-[federation tester](https://federationtester.matrix.org/). Images that were uploaded before stay
-as they are; avatars switch to direct media with their next weekly refresh. Combinations of very
-many eicons whose URI would be too long are still uploaded.
+The homeserver reaches that server name over federation, so the domain must be proxied to the
+bridge's appservice port (29380 by default) over HTTPS. The bridge answers
+`/.well-known/matrix/server` itself (with `server_name:443`, change it with `well_known_response`).
+An nginx example, which only passes on the paths the media server uses:
+
+```nginx
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name fchat-media.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/fchat-media.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/fchat-media.example.com/privkey.pem;
+
+    # Media downloads, server keys and the .well-known delegation.
+    location ~ ^/(_matrix/federation/|_matrix/key/|_matrix/client/v1/media/|\.well-known/matrix/server$) {
+        proxy_pass http://127.0.0.1:29380;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # Stream images instead of buffering them.
+        proxy_buffering off;
+    }
+
+    location / {
+        return 404;
+    }
+}
+```
+
+With Docker, use the container's address (e.g. `http://matrix-fchat:29380`) in `proxy_pass`.
+Check the setup with the [federation tester](https://federationtester.matrix.org/) (enter the
+media server name).
+
+Images that were uploaded before stay as they are; avatars switch to direct media with their next
+weekly refresh. Combinations of very many eicons whose URI would be too long are still uploaded.
 
 ### Join and chat links
 
